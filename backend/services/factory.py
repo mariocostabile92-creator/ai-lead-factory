@@ -176,6 +176,82 @@ def _package_search_queries(sector: str, location: str, target: str) -> list[str
     ]
 
 
+def _place_to_result(place: dict[str, Any]) -> dict[str, str]:
+    display_name = place.get("displayName") or {}
+    name = display_name.get("text") or place.get("name") or "Prospect Google Maps"
+    maps_url = place.get("googleMapsUri") or ""
+    website_url = place.get("websiteUri") or ""
+    rating = place.get("rating")
+    reviews = place.get("userRatingCount")
+    result = {
+        "title": name,
+        "url": website_url or maps_url,
+        "source": "Google Places",
+        "address": place.get("formattedAddress") or "",
+        "phone": place.get("nationalPhoneNumber") or place.get("internationalPhoneNumber") or "",
+        "website": website_url,
+        "maps_url": maps_url,
+        "rating": f"{rating} ({reviews} recensioni)" if rating and reviews else str(rating or ""),
+    }
+    return result
+
+
+def _search_google_places(sector: str, location: str, target: str, limit: int = 10) -> list[dict[str, str]]:
+    if not settings.google_places_api_key:
+        return []
+
+    target_focus = target or sector
+    payload = {
+        "textQuery": f"{target_focus} {location}",
+        "languageCode": "it",
+        "regionCode": "IT",
+        "maxResultCount": min(max(limit, 1), 20),
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": settings.google_places_api_key,
+        "X-Goog-FieldMask": ",".join(
+            [
+                "places.displayName",
+                "places.formattedAddress",
+                "places.googleMapsUri",
+                "places.websiteUri",
+                "places.nationalPhoneNumber",
+                "places.internationalPhoneNumber",
+                "places.rating",
+                "places.userRatingCount",
+                "places.businessStatus",
+            ]
+        ),
+    }
+
+    try:
+        response = httpx.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            json=payload,
+            headers=headers,
+            timeout=6.0,
+        )
+        response.raise_for_status()
+    except Exception:
+        return []
+
+    places = response.json().get("places", [])
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for place in places:
+        result = _place_to_result(place)
+        dedupe_key = result.get("maps_url") or result.get("website") or result["title"]
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        if result["url"]:
+            results.append(result)
+        if len(results) >= limit:
+            break
+    return results
+
+
 def _search_web(search_queries: list[str], limit: int = 8) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -197,6 +273,21 @@ def _search_web(search_queries: list[str], limit: int = 8) -> list[dict[str, str
     return results
 
 
+def _merge_research_results(*groups: list[dict[str, str]], limit: int = 12) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            dedupe_key = item.get("maps_url") or item.get("website") or item.get("url") or item.get("title", "")
+            if not dedupe_key or dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            merged.append(item)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
 def _format_prospect_rows(search_results: list[dict[str, str]]) -> str:
     if not search_results:
         return (
@@ -206,8 +297,16 @@ def _format_prospect_rows(search_results: list[dict[str, str]]) -> str:
 
     rows = ["## Prospect trovati da verificare"]
     for index, item in enumerate(search_results[:8], start=1):
-        domain = urlparse(item["url"]).netloc.replace("www.", "")
-        rows.append(f"{index}. {item['title']} - fonte: {domain} - {item['url']}")
+        domain = urlparse(item["url"]).netloc.replace("www.", "") or item.get("source", "fonte web")
+        details = []
+        if item.get("address"):
+            details.append(item["address"])
+        if item.get("phone"):
+            details.append(item["phone"])
+        if item.get("rating"):
+            details.append(f"rating {item['rating']}")
+        detail_text = f" - {' | '.join(details)}" if details else ""
+        rows.append(f"{index}. {item['title']} - fonte: {item.get('source') or domain}{detail_text} - {item['url']}")
     return "\n".join(rows) + "\n"
 
 
@@ -222,11 +321,15 @@ def _operational_package(
 ) -> dict[str, Any]:
     target_focus = target or sector
     search_queries = _package_search_queries(sector, location, target)
-    search_links = [item["url"] for item in search_results[:6]] or _build_search_links(search_queries)
+    search_links = [
+        item.get("website") or item.get("maps_url") or item["url"]
+        for item in search_results[:6]
+        if item.get("website") or item.get("maps_url") or item.get("url")
+    ] or _build_search_links(search_queries)
     research = [
         f"Target operativo: {target_focus}",
         f"Zona prioritaria: {location}",
-        "Fonti da usare: Google Maps, LinkedIn, registri imprese, associazioni locali",
+        "Fonti da usare: Google Places/Maps, LinkedIn, registri imprese, associazioni locali",
         "Criteri di qualifica: settore coerente, dimensione azienda, referente raggiungibile, segnale di bisogno",
     ]
     research.extend([f"{item['title']} - {item['url']}" for item in search_results[:5]])
@@ -379,7 +482,10 @@ class LeadFactoryService(BaseAssistantService):
         target = business.target.strip()
         details = business.details.strip()
         goal = payload.goal.strip()
-        search_results = _search_web(_package_search_queries(sector, location, target))
+        search_queries = _package_search_queries(sector, location, target)
+        places_results = _search_google_places(sector, location, target)
+        web_results = _search_web(search_queries) if len(places_results) < 6 else []
+        search_results = _merge_research_results(places_results, web_results)
         fallback_output = _operational_package(business_name, sector, location, goal, target, details, search_results)
 
         model_output = _call_openai_package(

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/impresa_ai.db"
     openai_api_key: str = ""
     openai_model: str = "gpt-5"
+    google_places_api_key: str = ""
     enable_public_storage: bool = False
 
     model_config = SettingsConfigDict(
