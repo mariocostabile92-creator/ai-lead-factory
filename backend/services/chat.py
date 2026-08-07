@@ -22,6 +22,12 @@ MODULE_KEYWORDS = {
     "operations": ["organizzare", "task", "scadenza", "processo", "operativo", "priorita"],
 }
 
+OUTREACH_FORMAT_KEYWORDS = {
+    "email": ["email", "mail", "messaggio email", "oggetto"],
+    "linkedin": ["linkedin", "linked in", "messaggio linkedin", "dm"],
+    "follow_up": ["follow-up", "follow up", "rinvito", "sollecito", "secondo messaggio"],
+}
+
 CHAT_SCHEMA = {
     "name": "lead_factory_chat_reply",
     "schema": {
@@ -83,12 +89,78 @@ def detect_module(message: str) -> str:
     return selected if scores[selected] > 0 else "operations"
 
 
+def detect_outreach_format(message: str) -> str:
+    normalized = message.lower()
+    scores = {
+        intent: sum(keyword in normalized for keyword in keywords)
+        for intent, keywords in OUTREACH_FORMAT_KEYWORDS.items()
+    }
+    selected = max(scores, key=scores.get)
+    return selected if scores[selected] > 0 else "email"
+
+
 def _clean_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
     return json.loads(cleaned)
+
+
+def _build_outreach_copy(
+    business_name: str,
+    sector: str,
+    location: str,
+    intent: str,
+) -> dict[str, str | list[str]]:
+    if intent == "linkedin":
+        return {
+            "draft_title": "Messaggio LinkedIn pronto",
+            "draft": chr(10).join([
+                f"Ciao, ti scrivo su LinkedIn perché lavoro con realtà nel settore {sector} a {location} e sto aiutando aziende come {business_name} a ottenere più risposte dai contatti giusti.",
+                "Ti lascio due righe concrete da inviare come messaggio LinkedIn.",
+            ]),
+            "cta": "Vuoi che lo adatti in tono più diretto o più commerciale?",
+            "suggestions": [
+                "Scrivi un messaggio LinkedIn",
+                "Crea una seconda variante LinkedIn",
+                "Prepara il follow-up",
+            ],
+        }
+
+    if intent == "follow_up":
+        return {
+            "draft_title": "Follow-up pronto",
+            "draft": chr(10).join([
+                "Ciao, ti riscrivo solo per capire se hai avuto modo di vedere il messaggio precedente.",
+                "Se ti va, ti mando un esempio più concreto e ti lascio tutto già pronto da valutare.",
+            ]),
+            "cta": "Vuoi che ti preparo anche il secondo e terzo follow-up?",
+            "suggestions": [
+                "Crea il primo follow-up",
+                "Crea il secondo follow-up",
+                "Crea il terzo follow-up",
+            ],
+        }
+
+    return {
+        "draft_title": "Bozza email pronta",
+        "draft": chr(10).join([
+            f"Oggetto: una proposta veloce per {business_name}",
+            "",
+            "Ciao,",
+            f"ti scrivo perché sto aiutando aziende nel settore {sector} a ottenere più risposte dai contatti giusti.",
+            f"Se ti va, ti preparo una bozza concreta pensata per {location} e per il tuo target.",
+            "",
+            "Ti va se te la mando?",
+        ]),
+        "cta": "Vuoi che ti scriva anche la versione email completa e il follow-up?",
+        "suggestions": [
+            "Scrivi email di apertura",
+            "Crea messaggio LinkedIn",
+            "Crea 3 follow-up",
+        ],
+    }
 
 
 def _fallback_reply(module: str, message: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
@@ -120,24 +192,16 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
     elif module == "outreach":
         search_queries = []
         search_links = []
-        draft_title = "Bozza email pronta"
-        draft = (
-            f"Oggetto: una proposta veloce per {business_name}\n\n"
-            f"Ciao,\n"
-            f"ti scrivo perché sto aiutando aziende nel settore {sector} a ottenere più risposte dai contatti giusti.\n"
-            f"Se ti va, ti preparo una bozza concreta pensata per {location} e per il tuo target.\n\n"
-            f"Ti va se te la mando?"
-        )
+        intent = detect_outreach_format(message)
+        copy = _build_outreach_copy(business_name, sector, location, intent)
+        draft_title = str(copy["draft_title"])
+        draft = str(copy["draft"])
         reply = (
-            f"Per {business_name} serve un messaggio breve e specifico. "
-            "Ti lascio subito una bozza email pronta e, se vuoi, la adatto anche per LinkedIn e WhatsApp."
+            f"Per {business_name} preparo una bozza mirata su {intent.replace('_', ' ')}. "
+            "Ti lascio subito qualcosa di pronto da usare."
         )
-        cta = "Ti lascio una bozza email pronta e, se vuoi, la trasformo in LinkedIn e WhatsApp."
-        suggestions = [
-            "Scrivi email di apertura",
-            "Crea messaggio LinkedIn",
-            "Crea 3 follow-up",
-        ]
+        cta = str(copy["cta"])
+        suggestions = list(copy["suggestions"])
         research = []
     elif module == "hiring":
         search_queries = []
@@ -206,8 +270,9 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
     }
 
 
-def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
+def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: str, sector: str, location: str, message: str) -> dict[str, Any]:
     fallback = _fallback_reply(module, "", business_name, sector, location)
+    intent = detect_outreach_format(message) if module == "outreach" else ""
     payload.setdefault("module", module)
     payload.setdefault("reply", fallback["reply"])
     payload.setdefault("cta", fallback["cta"])
@@ -225,15 +290,12 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
         payload["research"] = list(fallback["research"])
     if not payload.get("search_links") and module == "leads":
         payload["search_links"] = list(fallback.get("search_links", []))
-    if module == "outreach" and not payload.get("draft"):
-        payload["draft_title"] = "Bozza email pronta"
-        payload["draft"] = (
-            f"Oggetto: una proposta veloce per {business_name}\n\n"
-            f"Ciao,\n"
-            f"ti scrivo perché sto aiutando aziende nel settore {sector} a ottenere più risposte dai contatti giusti.\n"
-            f"Se ti va, ti preparo una bozza concreta pensata per {location} e per il tuo target.\n\n"
-            f"Ti va se te la mando?"
-        )
+    if module == "outreach":
+        copy = _build_outreach_copy(business_name, sector, location, intent)
+        payload["draft_title"] = str(copy["draft_title"])
+        payload["draft"] = str(copy["draft"])
+        payload["cta"] = str(copy["cta"])
+        payload["suggestions"] = list(copy["suggestions"])
     if module == "leads":
         suggestions = list(payload.get("suggestions", []))
         if not any("cerca" in suggestion.lower() for suggestion in suggestions):
@@ -242,7 +304,6 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
         if "ricerca" not in payload.get("cta", "").lower():
             payload["cta"] = "Vuoi che faccia una ricerca reale e ti preparo i target?"
     return payload
-
 
 def _call_openai_chat(
     module: str,
@@ -332,7 +393,7 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
     if model_output is None:
         model_output = _fallback_reply(module, payload.message.strip(), business_name, sector, location)
     else:
-        model_output = _ensure_search_focus(model_output, module, business_name, sector, location)
+        model_output = _ensure_search_focus(model_output, module, business_name, sector, location, payload.message.strip())
 
     response = ChatResponse(
         conversation_id=conversation.id if conversation else payload.conversation_id or "",
@@ -363,3 +424,4 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
             update_conversation_response_id(db, conversation, response_id)
 
     return response
+
