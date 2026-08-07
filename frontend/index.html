@@ -162,6 +162,7 @@
           <div id="chat-suggestions" class="chat-suggestions">
             <button type="button" class="chat-chip" data-chat-prompt="Trova nuovi clienti per la mia attività">Trova clienti</button>
             <button type="button" class="chat-chip" data-chat-prompt="Scrivi una email commerciale breve">Scrivi email</button>
+            <button type="button" class="chat-chip" data-chat-prompt="Cerca aziende target reali nella mia zona">Fai ricerca</button>
             <button type="button" class="chat-chip" data-chat-prompt="Organizza le mie priorità di oggi">Organizza oggi</button>
           </div>
 
@@ -188,6 +189,10 @@
           </label>
         </div>
 
+        <label>Chi vuoi raggiungere / cosa ricerchi?
+          <textarea id="target" required rows="3" placeholder="Es. aziende con 10-50 dipendenti, studi medici, negozi, amministratori di condominio..."></textarea>
+        </label>
+
         <label>Cosa vuoi vendere o promuovere?
           <textarea id="goal" required rows="5" placeholder="Es. Voglio trovare nuovi clienti e preparare un messaggio commerciale semplice."></textarea>
         </label>
@@ -205,6 +210,7 @@
         <p id="summary"></p>
         <ul id="actions"></ul>
         <section id="research" class="research hidden"></section>
+        <section id="links" class="result-links hidden"></section>
         <pre id="output"></pre>
       </section>
     </section>

@@ -539,6 +539,39 @@ button:disabled {
   line-height: 1.7;
 }
 
+.result-links {
+  margin: 18px 0;
+}
+
+.result-links h3 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.link-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chat-link-list {
+  margin-top: 10px;
+}
+
+.result-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(61, 142, 255, 0.12);
+  border: 1px solid rgba(61, 142, 255, 0.18);
+  color: #215fa8;
+  font-weight: 800;
+  text-decoration: none;
+}
+
 pre {
   white-space: pre-wrap;
   font-family: inherit;

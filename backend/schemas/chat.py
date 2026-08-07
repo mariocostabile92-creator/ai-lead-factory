@@ -18,3 +18,4 @@ class ChatResponse(BaseModel):
     follow_up_question: str | None = None
     suggestions: list[str]
     research: list[str] = Field(default_factory=list)
+    search_links: list[str] = Field(default_factory=list)

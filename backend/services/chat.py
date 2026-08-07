@@ -1,11 +1,12 @@
 import json
 import re
 from typing import Any
+from urllib.parse import quote_plus
 
 from sqlalchemy.orm import Session
 
 from backend.schemas.chat import ChatRequest, ChatResponse
-from backend.services.openai_client import get_openai_client
+from backend.services.openai_client import call_with_timeout, get_openai_client
 from backend.services.store import (
     get_or_create_conversation,
     save_chat_turn,
@@ -47,6 +48,12 @@ CHAT_SCHEMA = {
                 "minItems": 0,
                 "maxItems": 5,
             },
+            "search_links": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 0,
+                "maxItems": 5,
+            },
         },
         "required": [
             "module",
@@ -56,6 +63,7 @@ CHAT_SCHEMA = {
             "follow_up_question",
             "suggestions",
             "research",
+            "search_links",
         ],
     },
 }
@@ -82,6 +90,12 @@ def _clean_json(text: str) -> dict[str, Any]:
 def _fallback_reply(module: str, message: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
     lower_message = message.lower()
     if module == "leads":
+        search_queries = [
+            f"{sector} aziende {location}",
+            f"{sector} contatti {location}",
+            f"clienti potenziali {sector} {location}",
+        ]
+        search_links = [f"https://www.google.com/search?q={quote_plus(query)}" for query in search_queries]
         reply = (
             f"Ti aiuto a cercare clienti per {business_name}. "
             f"Partiamo da target reali in {location}, poi costruiamo un primo messaggio e una lista di contatti."
@@ -108,6 +122,7 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Crea 3 follow-up",
         ]
         research = []
+        search_links = []
     elif module == "hiring":
         reply = (
             f"Per assumere bene in {location}, dobbiamo chiarire ruolo, obiettivi e competenze davvero utili per {business_name}."
@@ -119,6 +134,7 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Prepara la griglia valutazione",
         ]
         research = []
+        search_links = []
     elif module == "documents":
         reply = (
             f"Per {business_name} posso trasformare una richiesta confusa in un documento chiaro e vendibile."
@@ -130,6 +146,7 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Prepara un contratto base",
         ]
         research = []
+        search_links = []
     else:
         reply = (
             f"Mettiamo ordine nel lavoro di {business_name}. "
@@ -142,6 +159,7 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Definisci il piano di oggi",
         ]
         research = []
+        search_links = []
 
     if any(term in lower_message for term in ["tutto", "completo", "ricerca", "cerca", "trova"]):
         cta = "Vuoi che faccia una ricerca reale e ti preparo i target?"
@@ -163,6 +181,7 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
         "follow_up_question": follow_up_question,
         "suggestions": suggestions,
         "research": research,
+        "search_links": search_links if module == "leads" else [],
     }
 
 
@@ -175,11 +194,14 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
     payload.setdefault("follow_up_question", fallback["follow_up_question"])
     payload.setdefault("suggestions", list(fallback["suggestions"]))
     payload.setdefault("research", list(fallback["research"]))
+    payload.setdefault("search_links", list(fallback.get("search_links", [])))
 
     if not payload.get("suggestions"):
         payload["suggestions"] = list(fallback["suggestions"])
     if not payload.get("research") and module in {"leads", "outreach"}:
         payload["research"] = list(fallback["research"])
+    if not payload.get("search_links") and module == "leads":
+        payload["search_links"] = list(fallback.get("search_links", []))
     if module == "leads":
         suggestions = list(payload.get("suggestions", []))
         if not any("cerca" in suggestion.lower() for suggestion in suggestions):
@@ -214,21 +236,27 @@ def _call_openai_chat(
         f"Primary module: {module}."
     )
 
-    response = client.responses.create(
-        model="gpt-5",
-        input=message,
-        instructions=instructions,
-        previous_response_id=conversation_response_id or None,
-        tools=tools,
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": CHAT_SCHEMA["name"],
-                "schema": CHAT_SCHEMA["schema"],
-                "strict": True,
-            }
-        },
+    response = call_with_timeout(
+        lambda: client.responses.create(
+            model="gpt-5",
+            input=message,
+            instructions=instructions,
+            previous_response_id=conversation_response_id or None,
+            tools=tools,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": CHAT_SCHEMA["name"],
+                    "schema": CHAT_SCHEMA["schema"],
+                    "strict": True,
+                }
+            },
+        ),
+        timeout_seconds=10.0,
     )
+
+    if response is None:
+        return None, None
 
     output_text = getattr(response, "output_text", None)
     if not output_text:
@@ -283,6 +311,7 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
         follow_up_question=model_output["follow_up_question"],
         suggestions=list(model_output["suggestions"]),
         research=list(model_output.get("research", [])),
+        search_links=list(model_output.get("search_links", [])),
     )
 
     if db is not None and conversation is not None:

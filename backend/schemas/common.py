@@ -1,9 +1,11 @@
 from pydantic import BaseModel, Field
 
+
 class BusinessContext(BaseModel):
     business_name: str = Field(min_length=2, max_length=120)
     sector: str = Field(min_length=2, max_length=120)
     location: str = Field(min_length=2, max_length=120)
+    target: str = Field(default="", max_length=2000)
     details: str = Field(default="", max_length=2000)
 
 class AssistantRequest(BaseModel):
@@ -19,3 +21,4 @@ class AssistantResponse(BaseModel):
     lead_id: int | None = None
     research: list[str] = Field(default_factory=list)
     search_queries: list[str] = Field(default_factory=list)
+    search_links: list[str] = Field(default_factory=list)

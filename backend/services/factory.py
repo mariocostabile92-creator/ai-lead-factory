@@ -1,12 +1,13 @@
 import json
 import re
 from typing import Any
+from urllib.parse import quote_plus
 
 from sqlalchemy.orm import Session
 
 from backend.schemas.common import AssistantRequest, AssistantResponse
 from backend.services.base import BaseAssistantService
-from backend.services.openai_client import get_openai_client
+from backend.services.openai_client import call_with_timeout, get_openai_client
 from backend.services.store import save_lead
 
 
@@ -38,9 +39,24 @@ PACKAGE_SCHEMA = {
                 "minItems": 3,
                 "maxItems": 6,
             },
+            "search_links": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 3,
+                "maxItems": 6,
+            },
             "output": {"type": "string"},
         },
-        "required": ["module", "title", "summary", "actions", "research", "search_queries", "output"],
+        "required": [
+            "module",
+            "title",
+            "summary",
+            "actions",
+            "research",
+            "search_queries",
+            "search_links",
+            "output",
+        ],
     },
 }
 
@@ -53,17 +69,23 @@ def _clean_json(text: str) -> dict[str, Any]:
     return json.loads(cleaned)
 
 
-def _fallback_package(business_name: str, sector: str, location: str, goal: str, details: str) -> dict[str, Any]:
+def _build_search_links(search_queries: list[str]) -> list[str]:
+    return [f"https://www.google.com/search?q={quote_plus(query)}" for query in search_queries]
+
+
+def _fallback_package(business_name: str, sector: str, location: str, goal: str, target: str, details: str) -> dict[str, Any]:
+    target_focus = target or sector
     research = [
-        f"Cerca aziende e decision maker nel settore {sector} a {location}",
+        f"Cerca aziende e decision maker che corrispondono a: {target_focus} a {location}",
         f"Verifica quali servizi o bisogni compra il cliente ideale di {business_name}",
         "Individua i canali dove rispondono più velocemente: email, LinkedIn o WhatsApp",
     ]
     search_queries = [
-        f"{sector} aziende {location}",
-        f"migliori clienti per {sector}",
-        f"contatti aziende {location} {sector}",
+        f"{target_focus} {sector} {location}",
+        f"migliori clienti per {target_focus}",
+        f"contatti aziende {location} {target_focus}",
     ]
+    search_links = _build_search_links(search_queries)
     actions = [
         "Definire il cliente ideale e il trigger d'acquisto",
         "Aprire 3 ricerche web per trovare target reali",
@@ -76,10 +98,13 @@ def _fallback_package(business_name: str, sector: str, location: str, goal: str,
         f"Attivita: {business_name}\n"
         f"Settore: {sector}\n"
         f"Zona: {location}\n\n"
+        f"Target da cercare: {target or 'non specificato'}\n\n"
         f"## Ricerca da fare subito\n"
         f"- " + "\n- ".join(research) + "\n\n"
         f"## Query di ricerca\n"
         f"- " + "\n- ".join(search_queries) + "\n\n"
+        f"## Link da aprire subito\n"
+        f"- " + "\n- ".join(search_links) + "\n\n"
         f"## Pacchetto pronto\n"
         f"- 50 profili target da cercare nel mercato di riferimento\n"
         f"- Email iniziale personalizzata\n"
@@ -99,6 +124,7 @@ def _fallback_package(business_name: str, sector: str, location: str, goal: str,
         "actions": actions,
         "research": research,
         "search_queries": search_queries,
+        "search_links": search_links,
         "output": output,
     }
 
@@ -108,6 +134,7 @@ def _call_openai_package(
     sector: str,
     location: str,
     goal: str,
+    target: str,
     details: str,
 ) -> dict[str, Any] | None:
     client = get_openai_client()
@@ -123,22 +150,29 @@ def _call_openai_package(
         f"Sector: {sector}\n"
         f"Location: {location}\n"
         f"Goal: {goal}\n"
+        f"Target to research: {target or 'none'}\n"
         f"Extra details: {details or 'none'}\n"
     )
 
-    response = client.responses.create(
-        model="gpt-5",
-        tools=[{"type": "web_search"}],
-        input=prompt,
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": PACKAGE_SCHEMA["name"],
-                "schema": PACKAGE_SCHEMA["schema"],
-                "strict": True,
-            }
-        },
+    response = call_with_timeout(
+        lambda: client.responses.create(
+            model="gpt-5",
+            tools=[{"type": "web_search"}],
+            input=prompt,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": PACKAGE_SCHEMA["name"],
+                    "schema": PACKAGE_SCHEMA["schema"],
+                    "strict": True,
+                }
+            },
+        ),
+        timeout_seconds=12.0,
     )
+
+    if response is None:
+        return None
 
     output_text = getattr(response, "output_text", None)
     if not output_text:
@@ -163,6 +197,8 @@ def _merge_package_output(
         merged["research"] = list(fallback_output["research"])
     if not merged.get("search_queries"):
         merged["search_queries"] = list(fallback_output["search_queries"])
+    if not merged.get("search_links"):
+        merged["search_links"] = list(fallback_output["search_links"])
     if not merged.get("actions"):
         merged["actions"] = list(fallback_output["actions"])
     if not merged.get("output"):
@@ -183,15 +219,17 @@ class LeadFactoryService(BaseAssistantService):
         business_name = business.business_name.strip() or "la tua attivita"
         sector = business.sector.strip()
         location = business.location.strip()
+        target = business.target.strip()
         details = business.details.strip()
         goal = payload.goal.strip()
-        fallback_output = _fallback_package(business_name, sector, location, goal, details)
+        fallback_output = _fallback_package(business_name, sector, location, goal, target, details)
 
         model_output = _call_openai_package(
             business_name=business_name,
             sector=sector,
             location=location,
             goal=goal,
+            target=target,
             details=details,
         )
 
@@ -205,6 +243,7 @@ class LeadFactoryService(BaseAssistantService):
             output=model_output["output"],
             research=list(model_output.get("research", [])),
             search_queries=list(model_output.get("search_queries", [])),
+            search_links=list(model_output.get("search_links", [])),
         )
 
         if db is not None:

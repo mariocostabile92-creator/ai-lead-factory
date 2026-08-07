@@ -9,6 +9,7 @@ const resultSummary = document.querySelector("#summary");
 const resultActions = document.querySelector("#actions");
 const resultOutput = document.querySelector("#output");
 const resultResearch = document.querySelector("#research");
+const resultLinks = document.querySelector("#links");
 const chatForm = document.querySelector("#chat-form");
 const chatInput = document.querySelector("#chat-input");
 const chatSend = document.querySelector("#chat-send");
@@ -24,13 +25,14 @@ function getBusinessContext() {
   const business_name = document.querySelector("#business-name").value.trim();
   const sector = document.querySelector("#sector").value.trim();
   const location = document.querySelector("#location").value.trim();
+  const target = document.querySelector("#target").value.trim();
   const details = document.querySelector("#details").value.trim();
 
-  if (!business_name && !sector && !location && !details) {
+  if (!business_name && !sector && !location && !target && !details) {
     return null;
   }
 
-  if (!business_name || !sector || !location) {
+  if (!business_name || !sector || !location || !target) {
     return null;
   }
 
@@ -38,6 +40,7 @@ function getBusinessContext() {
     business_name,
     sector,
     location,
+    target,
     details,
   };
 }
@@ -102,6 +105,65 @@ function renderResearch(items) {
   });
   resultResearch.appendChild(list);
   resultResearch.classList.remove("hidden");
+}
+
+function renderLinks(links) {
+  if (!resultLinks) {
+    return;
+  }
+
+  if (!links || !links.length) {
+    resultLinks.innerHTML = "";
+    resultLinks.classList.add("hidden");
+    return;
+  }
+
+  resultLinks.innerHTML = "";
+  const title = document.createElement("h3");
+  title.textContent = "Link pronti";
+  resultLinks.appendChild(title);
+
+  const list = document.createElement("div");
+  list.className = "link-list";
+  links.forEach((link) => {
+    const anchor = document.createElement("a");
+    anchor.href = link;
+    anchor.target = "_blank";
+    anchor.rel = "noreferrer";
+    anchor.textContent = "Apri ricerca";
+    anchor.className = "result-link";
+    list.appendChild(anchor);
+  });
+  resultLinks.appendChild(list);
+  resultLinks.classList.remove("hidden");
+}
+
+function renderChatLinks(links) {
+  if (!links || !links.length) {
+    return;
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble cta";
+
+  const label = document.createElement("strong");
+  label.textContent = "Link utili:";
+  bubble.appendChild(label);
+
+  const list = document.createElement("div");
+  list.className = "link-list chat-link-list";
+  links.forEach((link) => {
+    const anchor = document.createElement("a");
+    anchor.href = link;
+    anchor.target = "_blank";
+    anchor.rel = "noreferrer";
+    anchor.textContent = "Apri";
+    anchor.className = "result-link";
+    list.appendChild(anchor);
+  });
+  bubble.appendChild(list);
+  chatMessages.appendChild(bubble);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function renderRecentLeads(items) {
@@ -191,10 +253,16 @@ restoreChatHistory();
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const business = getBusinessContext();
+  if (!business) {
+    alert("Compila nome attività, settore, zona e target da cercare.");
+    return;
+  }
+
   button.disabled = true;
   button.textContent = "Sto lavorando...";
 
-  const payload = { goal: document.querySelector("#goal").value.trim(), business: getBusinessContext() };
+  const payload = { goal: document.querySelector("#goal").value.trim(), business };
 
   try {
     const data = await runAssistant(payload);
@@ -211,6 +279,7 @@ form.addEventListener("submit", async (event) => {
     });
     resultOutput.textContent = data.output;
     renderResearch(data.research);
+    renderLinks(data.search_links);
     result.classList.remove("hidden");
     refreshRecentLeads();
   } catch (error) {
@@ -253,6 +322,7 @@ chatForm.addEventListener("submit", async (event) => {
     if (data.research && data.research.length) {
       renderChatMessage("cta", `Ricerca: ${data.research.join(" | ")}`, "cta");
     }
+    renderChatLinks(data.search_links);
     updateSuggestions(data.suggestions);
   } catch (error) {
     renderChatMessage("bot", error.message);
