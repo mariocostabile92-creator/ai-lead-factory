@@ -32,3 +32,14 @@ def init_db() -> None:
     from backend.models.lead import Lead
 
     Base.metadata.create_all(bind=engine)
+
+    if settings.database_url.startswith("sqlite"):
+        with engine.begin() as connection:
+            columns = {
+                row[1]
+                for row in connection.exec_driver_sql("PRAGMA table_info(conversations)").all()
+            }
+            if "openai_response_id" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE conversations ADD COLUMN openai_response_id VARCHAR(120) DEFAULT ''"
+                )

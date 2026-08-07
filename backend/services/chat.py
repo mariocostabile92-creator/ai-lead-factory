@@ -2,16 +2,19 @@ import json
 import re
 from typing import Any
 
-import httpx
 from sqlalchemy.orm import Session
 
-from backend.core.config import settings
 from backend.schemas.chat import ChatRequest, ChatResponse
-from backend.services.store import get_or_create_conversation, save_chat_turn
+from backend.services.openai_client import get_openai_client
+from backend.services.store import (
+    get_or_create_conversation,
+    save_chat_turn,
+    update_conversation_response_id,
+)
 
 
 MODULE_KEYWORDS = {
-    "leads": ["cliente", "clienti", "lead", "contatti", "vendere", "azienda", "prospect"],
+    "leads": ["cliente", "clienti", "lead", "contatti", "vendere", "azienda", "prospect", "ricerca"],
     "outreach": ["email", "messaggio", "linkedin", "whatsapp", "follow-up", "follow up"],
     "hiring": ["assumere", "assunzione", "candidato", "cv", "colloquio", "dipendente"],
     "documents": ["preventivo", "contratto", "documento", "offerta", "proposta"],
@@ -20,7 +23,6 @@ MODULE_KEYWORDS = {
 
 CHAT_SCHEMA = {
     "name": "lead_factory_chat_reply",
-    "strict": True,
     "schema": {
         "type": "object",
         "additionalProperties": False,
@@ -31,14 +33,30 @@ CHAT_SCHEMA = {
             },
             "reply": {"type": "string"},
             "cta": {"type": "string"},
+            "needs_clarification": {"type": "boolean"},
+            "follow_up_question": {"type": ["string", "null"]},
             "suggestions": {
                 "type": "array",
                 "items": {"type": "string"},
                 "minItems": 3,
                 "maxItems": 3,
             },
+            "research": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 0,
+                "maxItems": 5,
+            },
         },
-        "required": ["module", "reply", "cta", "suggestions"],
+        "required": [
+            "module",
+            "reply",
+            "cta",
+            "needs_clarification",
+            "follow_up_question",
+            "suggestions",
+            "research",
+        ],
     },
 }
 
@@ -53,59 +71,35 @@ def detect_module(message: str) -> str:
     return selected if scores[selected] > 0 else "operations"
 
 
-def get_recent_messages(db: Session | None, conversation_id: str | None) -> list[dict[str, str]]:
-    if db is None or not conversation_id:
-        return []
-
-    from backend.models.conversation import ConversationMessage
-
-    rows = (
-        db.query(ConversationMessage)
-        .filter(ConversationMessage.conversation_id == conversation_id)
-        .order_by(ConversationMessage.created_at.desc(), ConversationMessage.id.desc())
-        .limit(8)
-        .all()
-    )
-    return [{"role": row.role, "content": row.content} for row in reversed(rows)]
+def _clean_json(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    return json.loads(cleaned)
 
 
-def build_system_prompt(module: str, business_name: str, sector: str, location: str) -> str:
-    focus = {
-        "leads": "lead generation, target selection, first contact, conversion",
-        "outreach": "sales messaging, follow-up, objection handling, next step",
-        "hiring": "recruiting, role definition, interview flow, selection",
-        "documents": "commercial documents, proposals, structure, clarity",
-        "operations": "priorities, execution, planning, accountability",
-    }[module]
-
-    return (
-        "You are AI Lead Factory, a sharp and practical business assistant.\n"
-        "Your job is to help the user move toward revenue, saved time, or clear next steps.\n"
-        "Be direct, concrete, and commercially useful. Avoid generic advice.\n"
-        "Always include a clear CTA that tells the user what to do next.\n"
-        "If the request is vague, ask one short clarifying question inside the reply.\n"
-        "Keep the answer concise: short paragraphs, no fluff.\n"
-        f"Current business context: business={business_name}, sector={sector}, location={location}.\n"
-        f"Primary focus area: {focus}."
-    )
-
-
-def build_fallback(module: str, business_name: str, sector: str, location: str) -> tuple[str, str, list[str]]:
+def _fallback_reply(module: str, message: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
+    lower_message = message.lower()
     if module == "leads":
         reply = (
-            f"Ti aiuto a trovare clienti per {business_name}. "
-            f"Parti da 20 target molto vicini a {sector} nella zona di {location}, poi scrivi un messaggio breve con un vantaggio chiaro."
+            f"Ti aiuto a cercare clienti per {business_name}. "
+            f"Partiamo da target reali in {location}, poi costruiamo un primo messaggio e una lista di contatti."
         )
-        cta = "Vuoi che ti preparo subito i primi 50 target?"
+        cta = "Vuoi che cerchi subito una lista di target reali per la tua zona?"
         suggestions = [
-            "Scrivi il cliente ideale",
-            "Genera la mail iniziale",
+            "Cerca aziende target reali",
+            "Scrivi il messaggio iniziale",
             "Prepara il follow-up",
+        ]
+        research = [
+            f"Cerca aziende e decision maker nel settore {sector} a {location}",
+            "Definisci 3 criteri per qualificare i prospect migliori",
         ]
     elif module == "outreach":
         reply = (
-            f"Per {business_name} il messaggio deve essere corto, specifico e orientato al risultato. "
-            "Ti conviene aprire con un problema che risolvi e chiudere con una richiesta semplice."
+            f"Per {business_name} serve un messaggio breve e specifico. "
+            "Ti preparo una sequenza che apre, incuriosisce e porta a una risposta."
         )
         cta = "Vuoi che ti scriva email, LinkedIn e WhatsApp insieme?"
         suggestions = [
@@ -113,9 +107,10 @@ def build_fallback(module: str, business_name: str, sector: str, location: str) 
             "Crea messaggio LinkedIn",
             "Crea 3 follow-up",
         ]
+        research = []
     elif module == "hiring":
         reply = (
-            f"Per assumere bene in {location}, devi prima chiarire ruolo, obiettivo e competenze davvero necessarie per {business_name}."
+            f"Per assumere bene in {location}, dobbiamo chiarire ruolo, obiettivi e competenze davvero utili per {business_name}."
         )
         cta = "Vuoi che ti preparo l'annuncio e le domande colloquio?"
         suggestions = [
@@ -123,10 +118,10 @@ def build_fallback(module: str, business_name: str, sector: str, location: str) 
             "Crea le domande",
             "Prepara la griglia valutazione",
         ]
+        research = []
     elif module == "documents":
         reply = (
-            f"Per {business_name} posso trasformare una richiesta confusa in un documento ordinato e vendibile. "
-            "Conviene partire da obiettivo, condizioni, tempi e prossimo passo."
+            f"Per {business_name} posso trasformare una richiesta confusa in un documento chiaro e vendibile."
         )
         cta = "Vuoi che ti prepari una proposta commerciale pronta?"
         suggestions = [
@@ -134,6 +129,7 @@ def build_fallback(module: str, business_name: str, sector: str, location: str) 
             "Scrivi una proposta",
             "Prepara un contratto base",
         ]
+        research = []
     else:
         reply = (
             f"Mettiamo ordine nel lavoro di {business_name}. "
@@ -145,123 +141,148 @@ def build_fallback(module: str, business_name: str, sector: str, location: str) 
             "Crea una checklist",
             "Definisci il piano di oggi",
         ]
+        research = []
 
-    return reply, cta, suggestions
+    if any(term in lower_message for term in ["tutto", "completo", "ricerca", "cerca", "trova"]):
+        cta = "Vuoi che faccia una ricerca reale e ti preparo i target?"
+        if module == "leads":
+            suggestions[0] = "Cerca aziende target reali"
+
+    needs_clarification = not (business_name and sector and location)
+    follow_up_question = (
+        "Mi dici settore, zona e cosa vendi?"
+        if needs_clarification
+        else None
+    )
+
+    return {
+        "module": module,
+        "reply": reply,
+        "cta": cta,
+        "needs_clarification": needs_clarification,
+        "follow_up_question": follow_up_question,
+        "suggestions": suggestions,
+        "research": research,
+    }
 
 
-def parse_openai_json(text: str) -> dict[str, Any]:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    return json.loads(cleaned)
+def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
+    fallback = _fallback_reply(module, "", business_name, sector, location)
+    payload.setdefault("module", module)
+    payload.setdefault("reply", fallback["reply"])
+    payload.setdefault("cta", fallback["cta"])
+    payload.setdefault("needs_clarification", fallback["needs_clarification"])
+    payload.setdefault("follow_up_question", fallback["follow_up_question"])
+    payload.setdefault("suggestions", list(fallback["suggestions"]))
+    payload.setdefault("research", list(fallback["research"]))
+
+    if not payload.get("suggestions"):
+        payload["suggestions"] = list(fallback["suggestions"])
+    if not payload.get("research") and module in {"leads", "outreach"}:
+        payload["research"] = list(fallback["research"])
+    if module == "leads":
+        suggestions = list(payload.get("suggestions", []))
+        if not any("cerca" in suggestion.lower() for suggestion in suggestions):
+            suggestions.insert(0, "Cerca aziende target reali")
+        payload["suggestions"] = suggestions[:3]
+        if "ricerca" not in payload.get("cta", "").lower():
+            payload["cta"] = "Vuoi che faccia una ricerca reale e ti preparo i target?"
+    return payload
 
 
-def extract_output_text(data: dict[str, Any]) -> str | None:
-    output_text = data.get("output_text")
-    if output_text:
-        return output_text
-
-    for item in data.get("output", []):
-        for content_item in item.get("content", []):
-            if content_item.get("type") == "output_text":
-                return content_item.get("text")
-            if content_item.get("type") == "text":
-                return content_item.get("text")
-    return None
-
-
-def call_openai_model(
+def _call_openai_chat(
     module: str,
     business_name: str,
     sector: str,
     location: str,
-    user_message: str,
-    history: list[dict[str, str]],
-) -> dict[str, Any] | None:
-    if not settings.openai_api_key:
-        return None
+    message: str,
+    conversation_response_id: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    client = get_openai_client()
+    if client is None:
+        return None, None
 
-    messages: list[dict[str, str]] = []
-    for item in history:
-        messages.append({"role": item["role"], "content": item["content"]})
-    messages.append({"role": "user", "content": user_message})
+    tools = [{"type": "web_search"}] if module in {"leads", "outreach"} else []
+    instructions = (
+        "You are AI Lead Factory, a sharp, practical business assistant.\n"
+        "Never repeat the same question if the needed context is already present in memory.\n"
+        "Advance the conversation by proposing the next best concrete action.\n"
+        "If the user asks for clients or sales help, include a research step and real-world search suggestions.\n"
+        "If business context is incomplete, ask exactly one short clarifying question and stop there.\n"
+        "Keep the tone direct, useful, and conversion oriented.\n"
+        f"Current context: business={business_name or 'unknown'}, sector={sector or 'unknown'}, location={location or 'unknown'}.\n"
+        f"Primary module: {module}."
+    )
 
-    payload = {
-        "model": settings.openai_model,
-        "instructions": build_system_prompt(module, business_name, sector, location),
-        "input": messages,
-        "temperature": 0.4,
-        "text": {
+    response = client.responses.create(
+        model="gpt-5",
+        input=message,
+        instructions=instructions,
+        previous_response_id=conversation_response_id or None,
+        tools=tools,
+        text={
             "format": {
                 "type": "json_schema",
-                "json_schema": CHAT_SCHEMA,
+                "name": CHAT_SCHEMA["name"],
+                "schema": CHAT_SCHEMA["schema"],
+                "strict": True,
             }
         },
-    }
+    )
+
+    output_text = getattr(response, "output_text", None)
+    if not output_text:
+        return None, getattr(response, "id", None)
 
     try:
-        response = httpx.post(
-            "https://api.openai.com/v1/responses",
-            headers={
-                "Authorization": f"Bearer {settings.openai_api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=40.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-        output_text = extract_output_text(data)
-        if not output_text:
-            return None
-        return parse_openai_json(output_text)
+        return _clean_json(output_text), getattr(response, "id", None)
     except Exception:
-        return None
+        return None, getattr(response, "id", None)
 
 
 def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatResponse:
     module = detect_module(payload.message)
     business = payload.business
-    business_name = business.business_name if business else "la tua attivita"
-    sector = business.sector if business else "il tuo settore"
-    location = business.location if business else "la tua zona"
+    business_name = business.business_name if business else ""
+    sector = business.sector if business else ""
+    location = business.location if business else ""
 
     conversation = None
-    history: list[dict[str, str]] = []
     if db is not None:
         conversation = get_or_create_conversation(db, payload.conversation_id, business)
-        history = get_recent_messages(db, conversation.id)
-        if not conversation.business_name and business:
+        if business:
             conversation.business_name = business.business_name
             conversation.sector = business.sector
             conversation.location = business.location
             db.commit()
+        else:
+            business_name = conversation.business_name or business_name
+            sector = conversation.sector or sector
+            location = conversation.location or location
 
-    model_output = call_openai_model(
+    model_output, response_id = _call_openai_chat(
         module=module,
         business_name=business_name,
         sector=sector,
         location=location,
-        user_message=payload.message.strip(),
-        history=history,
+        message=payload.message.strip(),
+        conversation_response_id=(conversation.openai_response_id if conversation else None),
     )
 
     if model_output is None:
-        reply, cta, suggestions = build_fallback(module, business_name, sector, location)
-        model_output = {
-            "module": module,
-            "reply": reply,
-            "cta": cta,
-            "suggestions": suggestions,
-        }
+        model_output = _fallback_reply(module, payload.message.strip(), business_name, sector, location)
+    else:
+        model_output = _ensure_search_focus(model_output, module, business_name, sector, location)
 
     response = ChatResponse(
         conversation_id=conversation.id if conversation else payload.conversation_id or "",
         module=model_output["module"],
         reply=model_output["reply"],
         cta=model_output["cta"],
+        needs_clarification=bool(model_output["needs_clarification"]),
+        follow_up_question=model_output["follow_up_question"],
         suggestions=list(model_output["suggestions"]),
+        research=list(model_output.get("research", [])),
     )
 
     if db is not None and conversation is not None:
@@ -272,5 +293,7 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
             assistant_message=f"{response.reply}\n\nCTA: {response.cta}",
             module=response.module,
         )
+        if response_id:
+            update_conversation_response_id(db, conversation, response_id)
 
     return response

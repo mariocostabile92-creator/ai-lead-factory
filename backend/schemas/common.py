@@ -17,3 +17,5 @@ class AssistantResponse(BaseModel):
     actions: list[str]
     output: str
     lead_id: int | None = None
+    research: list[str] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list)

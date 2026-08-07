@@ -14,6 +14,7 @@ class Conversation(Base):
     business_name: Mapped[str] = mapped_column(String(120), default="")
     sector: Mapped[str] = mapped_column(String(120), default="")
     location: Mapped[str] = mapped_column(String(120), default="")
+    openai_response_id: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

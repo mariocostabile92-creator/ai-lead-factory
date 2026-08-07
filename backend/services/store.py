@@ -58,6 +58,12 @@ def get_or_create_conversation(db: Session, conversation_id: str | None, busines
     return conversation
 
 
+def update_conversation_response_id(db: Session, conversation: Conversation, response_id: str) -> None:
+    conversation.openai_response_id = response_id
+    conversation.updated_at = datetime.utcnow()
+    db.commit()
+
+
 def save_chat_turn(
     db: Session,
     conversation: Conversation,

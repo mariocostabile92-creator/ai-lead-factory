@@ -8,6 +8,7 @@ const resultTitle = document.querySelector("#title");
 const resultSummary = document.querySelector("#summary");
 const resultActions = document.querySelector("#actions");
 const resultOutput = document.querySelector("#output");
+const resultResearch = document.querySelector("#research");
 const chatForm = document.querySelector("#chat-form");
 const chatInput = document.querySelector("#chat-input");
 const chatSend = document.querySelector("#chat-send");
@@ -15,7 +16,9 @@ const chatMessages = document.querySelector("#chat-messages");
 const chatSuggestions = document.querySelector("#chat-suggestions");
 const recentLeads = document.querySelector("#recent-leads");
 const conversationStorageKey = "aiLeadFactoryConversationId";
+const businessStorageKey = "aiLeadFactoryBusinessContext";
 let currentConversationId = localStorage.getItem(conversationStorageKey) || "";
+let currentBusinessContext = JSON.parse(localStorage.getItem(businessStorageKey) || "null");
 
 function getBusinessContext() {
   const business_name = document.querySelector("#business-name").value.trim();
@@ -56,8 +59,13 @@ function renderChatMessage(role, text, extraClass = "") {
 }
 
 function updateSuggestions(suggestions) {
+  const normalizedSuggestions = [...suggestions];
+  if (!normalizedSuggestions.some((suggestion) => suggestion.toLowerCase().includes("ricerca"))) {
+    normalizedSuggestions.push("Cerca aziende target reali");
+  }
+
   chatSuggestions.innerHTML = "";
-  suggestions.forEach((suggestion) => {
+  normalizedSuggestions.slice(0, 4).forEach((suggestion) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "chat-chip";
@@ -68,6 +76,32 @@ function updateSuggestions(suggestions) {
     });
     chatSuggestions.appendChild(button);
   });
+}
+
+function renderResearch(items) {
+  if (!resultResearch) {
+    return;
+  }
+
+  if (!items || !items.length) {
+    resultResearch.innerHTML = "";
+    resultResearch.classList.add("hidden");
+    return;
+  }
+
+  resultResearch.innerHTML = "";
+  const title = document.createElement("h3");
+  title.textContent = "Ricerca reale";
+  resultResearch.appendChild(title);
+
+  const list = document.createElement("ul");
+  items.forEach((item) => {
+    const entry = document.createElement("li");
+    entry.textContent = item;
+    list.appendChild(entry);
+  });
+  resultResearch.appendChild(list);
+  resultResearch.classList.remove("hidden");
 }
 
 function renderRecentLeads(items) {
@@ -164,6 +198,8 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const data = await runAssistant(payload);
+    currentBusinessContext = payload.business;
+    localStorage.setItem(businessStorageKey, JSON.stringify(currentBusinessContext));
     resultModule.textContent = data.module;
     resultTitle.textContent = data.title;
     resultSummary.textContent = data.summary;
@@ -174,6 +210,7 @@ form.addEventListener("submit", async (event) => {
       resultActions.appendChild(item);
     });
     resultOutput.textContent = data.output;
+    renderResearch(data.research);
     result.classList.remove("hidden");
     refreshRecentLeads();
   } catch (error) {
@@ -197,7 +234,7 @@ chatForm.addEventListener("submit", async (event) => {
   chatSend.textContent = "Sto pensando...";
 
   try {
-    const business = getBusinessContext();
+    const business = getBusinessContext() || currentBusinessContext;
     if (!business) {
       renderChatMessage("bot", "Se vuoi, scrivimi comunque cosa ti serve: la chat può partire anche senza i dati aziendali. Se vuoi un risultato più preciso, compila i campi sopra.");
     }
@@ -210,6 +247,12 @@ chatForm.addEventListener("submit", async (event) => {
     localStorage.setItem(conversationStorageKey, currentConversationId);
     renderChatMessage("bot", data.reply);
     renderChatMessage("cta", data.cta, "cta");
+    if (data.follow_up_question) {
+      renderChatMessage("bot", data.follow_up_question);
+    }
+    if (data.research && data.research.length) {
+      renderChatMessage("cta", `Ricerca: ${data.research.join(" | ")}`, "cta");
+    }
     updateSuggestions(data.suggestions);
   } catch (error) {
     renderChatMessage("bot", error.message);

@@ -14,4 +14,7 @@ class ChatResponse(BaseModel):
     module: str
     reply: str
     cta: str
+    needs_clarification: bool = False
+    follow_up_question: str | None = None
     suggestions: list[str]
+    research: list[str] = Field(default_factory=list)
