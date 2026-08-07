@@ -191,3 +191,29 @@ def test_chat_uses_previous_context_when_user_only_repeats_location() -> None:
     assert "giardiniere" in body["reply"].lower()
     assert "lomazzo" in body["reply"].lower()
     assert body["needs_clarification"] is False
+
+
+def test_chat_replaces_old_target_when_user_asks_new_business_type() -> None:
+    response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "ok ora, mi serve una scuola guida a Lomazzo",
+            "business": {
+                "business_name": "La tua attivita",
+                "sector": "ferramenta",
+                "location": "Lomazzo",
+                "target": "ferramenta",
+                "details": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["module"] == "leads"
+    assert "scuola guida" in body["reply"].lower()
+    assert "ferramenta" not in body["reply"].lower()
+    assert body["context"]["target"] == "scuola guida"
+    assert body["context"]["sector"] == "scuola guida"
+    assert body["context"]["location"] == "Lomazzo"
+    assert body["needs_clarification"] is False

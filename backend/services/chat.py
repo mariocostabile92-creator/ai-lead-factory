@@ -191,24 +191,25 @@ def _infer_context_from_message(message: str, sector: str, location: str, target
     inferred_sector = sector.strip()
     inferred_location = location.strip()
     inferred_target = target.strip()
+    previous_target = inferred_target
 
-    if not inferred_location:
-        for pattern in LOCATION_PATTERNS:
-            match = re.search(pattern, normalized)
-            if match:
-                possible_location = _clean_extracted_value(match.group(1))
-                if possible_location and possible_location not in {"azienda", "aziende", "cliente", "clienti"}:
-                    inferred_location = possible_location.title()
-                    break
+    for pattern in LOCATION_PATTERNS:
+        match = re.search(pattern, normalized)
+        if match:
+            possible_location = _clean_extracted_value(match.group(1))
+            if possible_location and possible_location not in {"azienda", "aziende", "cliente", "clienti"}:
+                inferred_location = possible_location.title()
+                break
 
-    if not inferred_target:
-        for pattern in TARGET_PATTERNS:
-            match = re.search(pattern, normalized)
-            if match:
-                possible_target = _clean_extracted_value(match.group(1))
-                if possible_target and possible_target != inferred_location.lower():
-                    inferred_target = possible_target
-                    break
+    for pattern in TARGET_PATTERNS:
+        match = re.search(pattern, normalized)
+        if match:
+            possible_target = _clean_extracted_value(match.group(1))
+            if possible_target and possible_target != inferred_location.lower():
+                inferred_target = possible_target
+                if possible_target != previous_target:
+                    inferred_sector = possible_target
+                break
 
     if not inferred_target:
         compact = re.sub(
