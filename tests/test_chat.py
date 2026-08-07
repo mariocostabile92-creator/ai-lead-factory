@@ -115,3 +115,36 @@ def test_chat_returns_follow_up_draft_when_requested() -> None:
     assert body["module"] == "outreach"
     assert body["draft_title"] == "Follow-up pronto"
     assert "studi professionali" in body["draft"].lower()
+
+
+def test_chat_infers_sector_from_free_text_without_form() -> None:
+    response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "ok ho bisogno di trovare un azienda di erboristeria",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["module"] == "leads"
+    assert "erboristeria" in body["reply"].lower()
+    assert body["needs_clarification"] is True
+    assert "zona" in body["follow_up_question"].lower()
+    assert "settore" not in body["follow_up_question"].lower()
+
+
+def test_chat_infers_sector_and_location_from_free_text() -> None:
+    response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "trova aziende di erboristeria a Como",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["module"] == "leads"
+    assert "erboristeria" in body["reply"].lower()
+    assert "como" in body["reply"].lower()
+    assert body["needs_clarification"] is False

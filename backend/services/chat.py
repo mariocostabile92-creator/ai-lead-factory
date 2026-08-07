@@ -81,6 +81,15 @@ MODULE_PRIORITY = {
     "operations": ["organizza", "checklist", "piano di oggi", "priorita"],
 }
 
+LOCATION_PATTERNS = [
+    r"\b(?:a|in|su|zona|vicino a|nei pressi di)\s+([a-zA-ZÀ-ÿ' -]{2,60})",
+]
+
+TARGET_PATTERNS = [
+    r"\b(?:azienda|aziende|attivita|negozio|negozi|cliente|clienti|lead|prospect)\s+(?:di|da|per|nel settore)\s+([a-zA-ZÀ-ÿ' -]{3,80})",
+    r"\b(?:di|da|per)\s+([a-zA-ZÀ-ÿ' -]{3,80})",
+]
+
 CHAT_SCHEMA = {
     "name": "lead_factory_chat_reply",
     "schema": {
@@ -159,6 +168,57 @@ def detect_outreach_format(message: str) -> str:
     }
     selected = max(scores, key=scores.get)
     return selected if scores[selected] > 0 else "email"
+
+
+def _clean_extracted_value(value: str) -> str:
+    cleaned = normalize_text(value)
+    cleaned = re.sub(
+        r"\b(ok|ho|bisogno|devo|voglio|vorrei|trovare|cercare|una|un|delle|degli|dei|le|gli|i|il|la)\b",
+        " ",
+        cleaned,
+    )
+    cleaned = re.sub(r"[^a-z0-9à-ÿ' -]", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip(" -")
+
+
+def _infer_context_from_message(message: str, sector: str, location: str, target: str) -> tuple[str, str, str]:
+    normalized = normalize_text(message)
+    inferred_sector = sector.strip()
+    inferred_location = location.strip()
+    inferred_target = target.strip()
+
+    if not inferred_location:
+        for pattern in LOCATION_PATTERNS:
+            match = re.search(pattern, normalized)
+            if match:
+                possible_location = _clean_extracted_value(match.group(1))
+                if possible_location and possible_location not in {"azienda", "aziende", "cliente", "clienti"}:
+                    inferred_location = possible_location.title()
+                    break
+
+    if not inferred_target:
+        for pattern in TARGET_PATTERNS:
+            match = re.search(pattern, normalized)
+            if match:
+                possible_target = _clean_extracted_value(match.group(1))
+                if possible_target and possible_target != inferred_location.lower():
+                    inferred_target = possible_target
+                    break
+
+    if not inferred_target:
+        compact = re.sub(
+            r"\b(ok|ho|bisogno|devo|voglio|vorrei|mi|serve|servono|trovare|cercare|trova|cerca|nuovi|clienti|lead|prospect|azienda|aziende|attivita|di|da|per|un|una|il|la|i|le)\b",
+            " ",
+            normalized,
+        )
+        compact = _clean_extracted_value(compact)
+        if compact:
+            inferred_target = compact
+
+    if not inferred_sector and inferred_target:
+        inferred_sector = inferred_target
+
+    return inferred_sector, inferred_location, inferred_target
 
 
 def _clean_json(text: str) -> dict[str, Any]:
@@ -312,19 +372,26 @@ def _fallback_reply(
     lower_message = normalize_text(message)
     draft_title = ""
     draft = ""
+    business_label = business_name or "la tua attivita"
 
     if module == "leads":
-        target_focus = target or f"aziende nel settore {sector}"
+        target_focus = target or f"aziende nel settore {sector}" if sector else "aziende target"
         search_queries = _search_queries(sector, location, target)
         search_links = [f"https://www.google.com/search?q={quote_plus(query)}" for query in search_queries]
+        if location:
+            next_step = "Ti preparo una ricerca utilizzabile: fonti da aprire, criteri di selezione e prossimo messaggio."
+            cta = "Apri i link, salva 10 aziende buone e poi ti preparo messaggi personalizzati."
+        else:
+            next_step = "Ho capito cosa cerchi; mi manca solo la zona per evitare risultati a caso."
+            cta = "Scrivimi la citta o provincia e parto con una ricerca mirata."
         reply = (
-            f"Ok, cerchiamo clienti reali per {business_name}. "
-            f"Target: {target_focus}. Zona: {location}. "
-            "Ti preparo una ricerca utilizzabile: fonti da aprire, criteri di selezione e prossimo messaggio."
+            f"Ok, cerchiamo prospect reali per {business_label}. "
+            f"Target capito: {target_focus}. "
+            f"Zona: {location or 'da definire'}. "
+            f"{next_step}"
         )
-        cta = "Apri i link, salva 10 aziende buone e poi ti preparo messaggi personalizzati."
         suggestions = [
-            "Qualifica questi prospect",
+            f"Cerca {target_focus} nella mia zona",
             "Scrivi email per questi target",
             "Crea follow-up per questi target",
         ]
@@ -391,12 +458,13 @@ def _fallback_reply(
     if module != "leads" and any(term in lower_message for term in ["tutto", "completo", "ricerca", "cerca", "trova"]):
         cta = "Vuoi che faccia una ricerca reale e ti preparo i target?"
 
-    needs_clarification = not (business_name and sector and location)
-    follow_up_question = (
-        "Mi dici settore, zona e cosa vendi?"
-        if needs_clarification
-        else None
-    )
+    missing = []
+    if not sector and not target:
+        missing.append("settore o tipo di azienda")
+    if not location:
+        missing.append("zona")
+    needs_clarification = bool(missing)
+    follow_up_question = f"Mi manca solo: {', '.join(missing)}." if missing else None
 
     return {
         "module": module,
@@ -475,11 +543,12 @@ def _call_openai_chat(
         "You are AI Lead Factory, a sharp, practical business assistant.\n"
         "Classify the user's real intent before answering: lead research, outreach copy, documents, hiring, or operations.\n"
         "Never repeat the same question if the needed context is already present in memory.\n"
+        "Infer sector, target, and partial intent from the user's wording. If the user says 'erboristeria', treat it as the target/sector.\n"
         "Advance the conversation by proposing the next best concrete action.\n"
         "If the user asks to find clients, companies, prospects, targets, contacts, or says 'cerca aziende target reali', answer as lead research.\n"
         "For lead research, include concrete search sources, qualification criteria, and useful search links.\n"
         "If the user asks to write an email, LinkedIn message, WhatsApp, or follow-up, return usable copy in draft_title and draft.\n"
-        "If business context is incomplete, ask exactly one short clarifying question and stop there.\n"
+        "If only the location is missing, ask only for location. If only the sector/target is missing, ask only for that.\n"
         "Keep the tone direct, useful, and conversion oriented. Avoid generic productivity advice unless the user asks for operations.\n"
         f"Current context: business={business_name or 'unknown'}, sector={sector or 'unknown'}, location={location or 'unknown'}.\n"
         f"Target to research/sell to: {target or 'unknown'}.\n"
@@ -527,6 +596,7 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
     location = business.location if business else ""
     target = business.target if business else ""
     details = business.details if business else ""
+    sector, location, target = _infer_context_from_message(payload.message, sector, location, target)
 
     conversation = None
     if db is not None:
