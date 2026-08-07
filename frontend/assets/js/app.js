@@ -18,11 +18,24 @@ const conversationStorageKey = "aiLeadFactoryConversationId";
 let currentConversationId = localStorage.getItem(conversationStorageKey) || "";
 
 function getBusinessContext() {
+  const business_name = document.querySelector("#business-name").value.trim();
+  const sector = document.querySelector("#sector").value.trim();
+  const location = document.querySelector("#location").value.trim();
+  const details = document.querySelector("#details").value.trim();
+
+  if (!business_name && !sector && !location && !details) {
+    return null;
+  }
+
+  if (!business_name || !sector || !location) {
+    return null;
+  }
+
   return {
-    business_name: document.querySelector("#business-name").value.trim(),
-    sector: document.querySelector("#sector").value.trim(),
-    location: document.querySelector("#location").value.trim(),
-    details: document.querySelector("#details").value.trim(),
+    business_name,
+    sector,
+    location,
+    details,
   };
 }
 
@@ -184,9 +197,13 @@ chatForm.addEventListener("submit", async (event) => {
   chatSend.textContent = "Sto pensando...";
 
   try {
+    const business = getBusinessContext();
+    if (!business) {
+      renderChatMessage("bot", "Se vuoi, scrivimi comunque cosa ti serve: la chat può partire anche senza i dati aziendali. Se vuoi un risultato più preciso, compila i campi sopra.");
+    }
     const data = await sendChat({
       message,
-      business: getBusinessContext(),
+      business,
       conversation_id: currentConversationId || null,
     });
     currentConversationId = data.conversation_id;
