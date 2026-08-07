@@ -186,6 +186,56 @@ async function copyText(text, button) {
   }
 }
 
+function escapeCsvValue(value) {
+  const normalizedValue = String(value || "").replace(/\r?\n|\r/g, " ").trim();
+  return `"${normalizedValue.replace(/"/g, '""')}"`;
+}
+
+function buildProspectsCsv(prospects) {
+  const headers = [
+    "Nome azienda",
+    "Telefono",
+    "Sito",
+    "Google Maps",
+    "Indirizzo",
+    "Rating",
+    "Fonte",
+    "Perche e un buon target",
+    "Messaggio personalizzato",
+  ];
+
+  const rows = prospects.slice(0, 50).map((prospect) => [
+    prospect.name,
+    prospect.phone,
+    prospect.website,
+    prospect.maps_url,
+    prospect.address,
+    prospect.rating,
+    prospect.source,
+    prospect.fit_reason,
+    prospect.message,
+  ]);
+
+  return [
+    headers.map(escapeCsvValue).join(","),
+    ...rows.map((row) => row.map(escapeCsvValue).join(",")),
+  ].join("\n");
+}
+
+function downloadProspectsCsv(prospects) {
+  const csv = buildProspectsCsv(prospects);
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  const date = new Date().toISOString().slice(0, 10);
+  anchor.href = url;
+  anchor.download = `ai-lead-factory-prospect-${date}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 function renderProspects(prospects) {
   if (!resultProspects) {
     return;
@@ -198,9 +248,27 @@ function renderProspects(prospects) {
   }
 
   resultProspects.innerHTML = "";
+  const header = document.createElement("div");
+  header.className = "prospects-header";
+
+  const titleBlock = document.createElement("div");
   const title = document.createElement("h3");
   title.textContent = "Prospect pronti da lavorare";
-  resultProspects.appendChild(title);
+  titleBlock.appendChild(title);
+
+  const subtitle = document.createElement("p");
+  subtitle.textContent = `${Math.min(prospects.length, 50)} contatti esportabili con messaggio personalizzato.`;
+  titleBlock.appendChild(subtitle);
+  header.appendChild(titleBlock);
+
+  const exportButton = document.createElement("button");
+  exportButton.type = "button";
+  exportButton.className = "export-button";
+  exportButton.textContent = "Scarica CSV";
+  exportButton.addEventListener("click", () => downloadProspectsCsv(prospects));
+  header.appendChild(exportButton);
+
+  resultProspects.appendChild(header);
 
   const table = document.createElement("div");
   table.className = "prospect-table";

@@ -558,10 +558,35 @@ button:disabled {
   margin: 20px 0;
 }
 
+.prospects-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
 .prospects h3 {
   margin: 0 0 12px;
   font-size: 20px;
   font-family: Georgia, "Times New Roman", serif;
+}
+
+.prospects-header p {
+  margin: -4px 0 0;
+  color: #64736b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.export-button {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 11px 16px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #132018, #294635);
+  color: #fffdf7;
+  box-shadow: 0 14px 24px rgba(19, 32, 24, 0.16);
 }
 
 .prospect-table {
