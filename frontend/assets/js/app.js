@@ -166,6 +166,27 @@ function renderChatLinks(links) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+function renderDraft(title, draft) {
+  if (!draft) {
+    return;
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble bot";
+
+  const heading = document.createElement("strong");
+  heading.textContent = title || "Bozza pronta";
+  bubble.appendChild(heading);
+
+  const body = document.createElement("pre");
+  body.textContent = draft;
+  body.className = "chat-draft";
+  bubble.appendChild(body);
+
+  chatMessages.appendChild(bubble);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 function renderRecentLeads(items) {
   if (!items.length) {
     recentLeads.innerHTML = `
@@ -223,10 +244,14 @@ async function restoreChatHistory() {
     chatMessages.innerHTML = "";
     history.messages.forEach((message) => {
       if (message.role === "assistant" && message.content.includes("CTA: ")) {
-        const [replyText, ctaText] = message.content.split("\n\nCTA: ");
+        const [replyText, rest] = message.content.split("\n\nCTA: ");
+        const [ctaText, draftText] = rest.split("\n\nDRAFT: ");
         renderChatMessage("bot", replyText.trim());
         if (ctaText) {
           renderChatMessage("cta", ctaText.trim(), "cta");
+        }
+        if (draftText) {
+          renderDraft("Bozza salvata", draftText.trim());
         }
         return;
       }
@@ -323,6 +348,7 @@ chatForm.addEventListener("submit", async (event) => {
       renderChatMessage("cta", `Ricerca: ${data.research.join(" | ")}`, "cta");
     }
     renderChatLinks(data.search_links);
+    renderDraft(data.draft_title, data.draft);
     updateSuggestions(data.suggestions);
   } catch (error) {
     renderChatMessage("bot", error.message);

@@ -54,6 +54,8 @@ CHAT_SCHEMA = {
                 "minItems": 0,
                 "maxItems": 5,
             },
+            "draft_title": {"type": "string"},
+            "draft": {"type": "string"},
         },
         "required": [
             "module",
@@ -64,6 +66,8 @@ CHAT_SCHEMA = {
             "suggestions",
             "research",
             "search_links",
+            "draft_title",
+            "draft",
         ],
     },
 }
@@ -89,6 +93,9 @@ def _clean_json(text: str) -> dict[str, Any]:
 
 def _fallback_reply(module: str, message: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
     lower_message = message.lower()
+    draft_title = ""
+    draft = ""
+
     if module == "leads":
         search_queries = [
             f"{sector} aziende {location}",
@@ -111,19 +118,30 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Definisci 3 criteri per qualificare i prospect migliori",
         ]
     elif module == "outreach":
+        search_queries = []
+        search_links = []
+        draft_title = "Bozza email pronta"
+        draft = (
+            f"Oggetto: una proposta veloce per {business_name}\n\n"
+            f"Ciao,\n"
+            f"ti scrivo perché sto aiutando aziende nel settore {sector} a ottenere più risposte dai contatti giusti.\n"
+            f"Se ti va, ti preparo una bozza concreta pensata per {location} e per il tuo target.\n\n"
+            f"Ti va se te la mando?"
+        )
         reply = (
             f"Per {business_name} serve un messaggio breve e specifico. "
-            "Ti preparo una sequenza che apre, incuriosisce e porta a una risposta."
+            "Ti lascio subito una bozza email pronta e, se vuoi, la adatto anche per LinkedIn e WhatsApp."
         )
-        cta = "Vuoi che ti scriva email, LinkedIn e WhatsApp insieme?"
+        cta = "Ti lascio una bozza email pronta e, se vuoi, la trasformo in LinkedIn e WhatsApp."
         suggestions = [
             "Scrivi email di apertura",
             "Crea messaggio LinkedIn",
             "Crea 3 follow-up",
         ]
         research = []
-        search_links = []
     elif module == "hiring":
+        search_queries = []
+        search_links = []
         reply = (
             f"Per assumere bene in {location}, dobbiamo chiarire ruolo, obiettivi e competenze davvero utili per {business_name}."
         )
@@ -134,8 +152,9 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Prepara la griglia valutazione",
         ]
         research = []
-        search_links = []
     elif module == "documents":
+        search_queries = []
+        search_links = []
         reply = (
             f"Per {business_name} posso trasformare una richiesta confusa in un documento chiaro e vendibile."
         )
@@ -146,8 +165,9 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Prepara un contratto base",
         ]
         research = []
-        search_links = []
     else:
+        search_queries = []
+        search_links = []
         reply = (
             f"Mettiamo ordine nel lavoro di {business_name}. "
             "Scegli una priorita, spezzala in tre passi e chiudi oggi la prossima azione utile."
@@ -159,7 +179,6 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
             "Definisci il piano di oggi",
         ]
         research = []
-        search_links = []
 
     if any(term in lower_message for term in ["tutto", "completo", "ricerca", "cerca", "trova"]):
         cta = "Vuoi che faccia una ricerca reale e ti preparo i target?"
@@ -182,6 +201,8 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
         "suggestions": suggestions,
         "research": research,
         "search_links": search_links if module == "leads" else [],
+        "draft_title": draft_title,
+        "draft": draft,
     }
 
 
@@ -195,6 +216,8 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
     payload.setdefault("suggestions", list(fallback["suggestions"]))
     payload.setdefault("research", list(fallback["research"]))
     payload.setdefault("search_links", list(fallback.get("search_links", [])))
+    payload.setdefault("draft_title", fallback.get("draft_title", ""))
+    payload.setdefault("draft", fallback.get("draft", ""))
 
     if not payload.get("suggestions"):
         payload["suggestions"] = list(fallback["suggestions"])
@@ -202,6 +225,15 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
         payload["research"] = list(fallback["research"])
     if not payload.get("search_links") and module == "leads":
         payload["search_links"] = list(fallback.get("search_links", []))
+    if module == "outreach" and not payload.get("draft"):
+        payload["draft_title"] = "Bozza email pronta"
+        payload["draft"] = (
+            f"Oggetto: una proposta veloce per {business_name}\n\n"
+            f"Ciao,\n"
+            f"ti scrivo perché sto aiutando aziende nel settore {sector} a ottenere più risposte dai contatti giusti.\n"
+            f"Se ti va, ti preparo una bozza concreta pensata per {location} e per il tuo target.\n\n"
+            f"Ti va se te la mando?"
+        )
     if module == "leads":
         suggestions = list(payload.get("suggestions", []))
         if not any("cerca" in suggestion.lower() for suggestion in suggestions):
@@ -312,6 +344,8 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
         suggestions=list(model_output["suggestions"]),
         research=list(model_output.get("research", [])),
         search_links=list(model_output.get("search_links", [])),
+        draft_title=model_output.get("draft_title", ""),
+        draft=model_output.get("draft", ""),
     )
 
     if db is not None and conversation is not None:
@@ -319,7 +353,10 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
             db,
             conversation=conversation,
             user_message=payload.message.strip(),
-            assistant_message=f"{response.reply}\n\nCTA: {response.cta}",
+            assistant_message=(
+                f"{response.reply}\n\nCTA: {response.cta}"
+                + (f"\n\nDRAFT: {response.draft}" if response.draft else "")
+            ),
             module=response.module,
         )
         if response_id:

@@ -423,6 +423,17 @@ button:hover {
   font-weight: 800;
 }
 
+.chat-draft {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #fffdf7;
+  border: 1px solid rgba(19, 32, 24, 0.08);
+  white-space: pre-wrap;
+  line-height: 1.65;
+  font-family: inherit;
+}
+
 .chat-suggestions {
   display: flex;
   flex-wrap: wrap;
