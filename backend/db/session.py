@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy import inspect
 from sqlalchemy.orm import sessionmaker
 
 from backend.core.config import settings
@@ -33,13 +34,20 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
-    if settings.database_url.startswith("sqlite"):
-        with engine.begin() as connection:
-            columns = {
-                row[1]
-                for row in connection.exec_driver_sql("PRAGMA table_info(conversations)").all()
-            }
-            if "openai_response_id" not in columns:
-                connection.exec_driver_sql(
-                    "ALTER TABLE conversations ADD COLUMN openai_response_id VARCHAR(120) DEFAULT ''"
-                )
+    inspector = inspect(engine)
+    if "conversations" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("conversations")}
+    if "openai_response_id" in columns:
+        return
+
+    with engine.begin() as connection:
+        if engine.dialect.name == "sqlite":
+            connection.exec_driver_sql(
+                "ALTER TABLE conversations ADD COLUMN openai_response_id VARCHAR(120) DEFAULT ''"
+            )
+        else:
+            connection.exec_driver_sql(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS openai_response_id VARCHAR(120) DEFAULT ''"
+            )
