@@ -12,6 +12,19 @@ class AssistantRequest(BaseModel):
     goal: str = Field(min_length=3, max_length=2000)
     business: BusinessContext
 
+
+class ProspectItem(BaseModel):
+    name: str = ""
+    phone: str = ""
+    website: str = ""
+    maps_url: str = ""
+    address: str = ""
+    rating: str = ""
+    source: str = ""
+    fit_reason: str = ""
+    message: str = ""
+
+
 class AssistantResponse(BaseModel):
     module: str
     title: str
@@ -22,3 +35,4 @@ class AssistantResponse(BaseModel):
     research: list[str] = Field(default_factory=list)
     search_queries: list[str] = Field(default_factory=list)
     search_links: list[str] = Field(default_factory=list)
+    prospects: list[ProspectItem] = Field(default_factory=list)

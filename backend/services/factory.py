@@ -288,6 +288,58 @@ def _merge_research_results(*groups: list[dict[str, str]], limit: int = 12) -> l
     return merged
 
 
+def _prospect_fit_reason(item: dict[str, str], sector: str, location: str, target: str) -> str:
+    parts = []
+    if item.get("source") == "Google Places":
+        parts.append("presenza verificabile su Google Maps")
+    if item.get("phone"):
+        parts.append("telefono disponibile")
+    if item.get("website"):
+        parts.append("sito disponibile")
+    if item.get("rating"):
+        parts.append(f"rating {item['rating']}")
+    if not parts:
+        parts.append("fonte pubblica da qualificare")
+
+    target_focus = target or sector
+    return f"Coerente con '{target_focus}' in zona {location}: " + ", ".join(parts) + "."
+
+
+def _prospect_message(item: dict[str, str], business_name: str, sector: str, location: str, target: str) -> str:
+    target_focus = target or sector
+    name = item.get("title") or "la vostra attivita"
+    return (
+        f"Ciao {name}, ho visto la vostra attivita a {location}. "
+        f"Sto selezionando realta vicine a {target_focus} per {business_name}, che lavora nel settore {sector}. "
+        "Se ha senso, ti mando due righe concrete per capire se possiamo aiutarti."
+    )
+
+
+def _build_prospects(
+    search_results: list[dict[str, str]],
+    business_name: str,
+    sector: str,
+    location: str,
+    target: str,
+) -> list[dict[str, str]]:
+    prospects: list[dict[str, str]] = []
+    for item in search_results[:10]:
+        prospects.append(
+            {
+                "name": item.get("title", ""),
+                "phone": item.get("phone", ""),
+                "website": item.get("website", ""),
+                "maps_url": item.get("maps_url", ""),
+                "address": item.get("address", ""),
+                "rating": item.get("rating", ""),
+                "source": item.get("source") or urlparse(item.get("url", "")).netloc.replace("www.", ""),
+                "fit_reason": _prospect_fit_reason(item, sector, location, target),
+                "message": _prospect_message(item, business_name, sector, location, target),
+            }
+        )
+    return prospects
+
+
 def _format_prospect_rows(search_results: list[dict[str, str]]) -> str:
     if not search_results:
         return (
@@ -320,6 +372,7 @@ def _operational_package(
     search_results: list[dict[str, str]],
 ) -> dict[str, Any]:
     target_focus = target or sector
+    prospects = _build_prospects(search_results, business_name, sector, location, target)
     search_queries = _package_search_queries(sector, location, target)
     search_links = [
         item.get("website") or item.get("maps_url") or item["url"]
@@ -347,6 +400,8 @@ def _operational_package(
         f"Zona: {location}\n"
         f"Target da cercare: {target_focus}\n\n"
         f"{_format_prospect_rows(search_results)}\n"
+        f"## Messaggi personalizzati per prospect\n"
+        f"- " + "\n- ".join(f"{prospect['name']}: {prospect['message']}" for prospect in prospects[:5]) + "\n\n"
         f"## Query pronte\n"
         f"- " + "\n- ".join(search_queries) + "\n\n"
         f"## Link/prospect da aprire subito\n"
@@ -379,6 +434,7 @@ def _operational_package(
         "research": research[:10],
         "search_queries": search_queries,
         "search_links": search_links,
+        "prospects": prospects,
         "output": output,
     }
 
@@ -457,6 +513,8 @@ def _merge_package_output(
         merged["search_links"] = list(fallback_output["search_links"])
     else:
         merged["search_links"] = list(dict.fromkeys(list(fallback_output["search_links"]) + list(merged["search_links"])))[:6]
+    if not merged.get("prospects"):
+        merged["prospects"] = list(fallback_output.get("prospects", []))
     if not merged.get("actions"):
         merged["actions"] = list(fallback_output["actions"])
     if not merged.get("output"):
@@ -509,6 +567,7 @@ class LeadFactoryService(BaseAssistantService):
             research=list(model_output.get("research", [])),
             search_queries=list(model_output.get("search_queries", [])),
             search_links=list(model_output.get("search_links", [])),
+            prospects=list(model_output.get("prospects", [])),
         )
 
         if db is not None and settings.enable_public_storage:

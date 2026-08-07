@@ -8,6 +8,7 @@ const resultTitle = document.querySelector("#title");
 const resultSummary = document.querySelector("#summary");
 const resultActions = document.querySelector("#actions");
 const resultOutput = document.querySelector("#output");
+const resultProspects = document.querySelector("#prospects");
 const resultResearch = document.querySelector("#research");
 const resultLinks = document.querySelector("#links");
 const chatForm = document.querySelector("#chat-form");
@@ -153,6 +154,106 @@ function renderLinks(links) {
   resultLinks.classList.remove("hidden");
 }
 
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const previous = button.textContent;
+    button.textContent = "Copiato";
+    setTimeout(() => {
+      button.textContent = previous;
+    }, 1200);
+  } catch (error) {
+    alert("Non riesco a copiare automaticamente. Seleziona il testo e copialo manualmente.");
+  }
+}
+
+function renderProspects(prospects) {
+  if (!resultProspects) {
+    return;
+  }
+
+  if (!prospects || !prospects.length) {
+    resultProspects.innerHTML = "";
+    resultProspects.classList.add("hidden");
+    return;
+  }
+
+  resultProspects.innerHTML = "";
+  const title = document.createElement("h3");
+  title.textContent = "Prospect pronti da lavorare";
+  resultProspects.appendChild(title);
+
+  const table = document.createElement("div");
+  table.className = "prospect-table";
+
+  prospects.slice(0, 10).forEach((prospect) => {
+    const row = document.createElement("article");
+    row.className = "prospect-row";
+
+    const header = document.createElement("div");
+    header.className = "prospect-header";
+
+    const name = document.createElement("h4");
+    name.textContent = prospect.name || "Prospect";
+    header.appendChild(name);
+
+    const source = document.createElement("span");
+    source.textContent = prospect.source || "Fonte";
+    source.className = "prospect-source";
+    header.appendChild(source);
+    row.appendChild(header);
+
+    const meta = document.createElement("div");
+    meta.className = "prospect-meta";
+    [
+      prospect.phone,
+      prospect.address,
+      prospect.rating,
+    ].filter(Boolean).forEach((value) => {
+      const item = document.createElement("span");
+      item.textContent = value;
+      meta.appendChild(item);
+    });
+    row.appendChild(meta);
+
+    const reason = document.createElement("p");
+    reason.className = "prospect-reason";
+    reason.textContent = prospect.fit_reason || "Da qualificare manualmente.";
+    row.appendChild(reason);
+
+    const message = document.createElement("p");
+    message.className = "prospect-message";
+    message.textContent = prospect.message || "";
+    row.appendChild(message);
+
+    const actions = document.createElement("div");
+    actions.className = "prospect-actions";
+    const primaryLink = prospect.website || prospect.maps_url;
+    if (primaryLink) {
+      const anchor = document.createElement("a");
+      anchor.href = primaryLink;
+      anchor.target = "_blank";
+      anchor.rel = "noreferrer";
+      anchor.textContent = prospect.website ? "Apri sito" : "Apri Maps";
+      anchor.className = "result-link";
+      actions.appendChild(anchor);
+    }
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "copy-button";
+    copyButton.textContent = "Copia messaggio";
+    copyButton.addEventListener("click", () => copyText(prospect.message || "", copyButton));
+    actions.appendChild(copyButton);
+    row.appendChild(actions);
+
+    table.appendChild(row);
+  });
+
+  resultProspects.appendChild(table);
+  resultProspects.classList.remove("hidden");
+}
+
 function renderChatLinks(links) {
   if (!links || !links.length) {
     return;
@@ -260,6 +361,7 @@ form.addEventListener("submit", async (event) => {
     });
     resultOutput.textContent = data.output;
     renderResearch(data.research);
+    renderProspects(data.prospects);
     renderLinks(data.search_links);
     result.classList.remove("hidden");
     refreshRecentLeads();

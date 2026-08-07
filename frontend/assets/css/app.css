@@ -554,6 +554,95 @@ button:disabled {
   margin: 18px 0;
 }
 
+.prospects {
+  margin: 20px 0;
+}
+
+.prospects h3 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.prospect-table {
+  display: grid;
+  gap: 12px;
+}
+
+.prospect-row {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(19, 32, 24, 0.1);
+}
+
+.prospect-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prospect-header h4 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.prospect-source {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(61, 142, 255, 0.12);
+  color: #215fa8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.prospect-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prospect-meta span {
+  padding: 7px 9px;
+  border-radius: 999px;
+  background: #f7f4ee;
+  color: #43544a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prospect-reason,
+.prospect-message {
+  margin: 0;
+  color: #3e4f47;
+  line-height: 1.6;
+}
+
+.prospect-message {
+  padding: 12px;
+  border-radius: 14px;
+  background: #fffdf7;
+  border: 1px solid rgba(19, 32, 24, 0.08);
+}
+
+.prospect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.copy-button {
+  width: auto;
+  padding: 10px 14px;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
 .result-links h3 {
   margin: 0 0 10px;
   font-size: 18px;

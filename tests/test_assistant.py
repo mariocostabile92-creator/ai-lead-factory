@@ -52,6 +52,9 @@ def test_routes_goal_to_lead_factory(monkeypatch) -> None:
     assert "Prospect trovati da verificare" in body["output"]
     assert "Studio Tecnico Demo Como" in body["output"]
     assert body["search_links"] == ["https://example.com/studio-tecnico-demo"]
+    assert body["prospects"][0]["name"] == "Studio Tecnico Demo Como"
+    assert body["prospects"][0]["fit_reason"]
+    assert "Demo SRL" in body["prospects"][0]["message"]
 
 
 def test_recent_leads_are_not_public_without_login(monkeypatch) -> None:
@@ -99,3 +102,6 @@ def test_routes_goal_uses_google_places_prospects(monkeypatch) -> None:
     assert "Via Roma 1, Como" in body["output"]
     assert "031 123456" in body["output"]
     assert body["search_links"] == ["https://maps.google.com/?cid=123"]
+    assert body["prospects"][0]["phone"] == "031 123456"
+    assert body["prospects"][0]["rating"] == "4.7 (18 recensioni)"
+    assert "Studio Tecnico Places Como" in body["prospects"][0]["message"]
