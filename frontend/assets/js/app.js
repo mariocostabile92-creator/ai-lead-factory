@@ -37,6 +37,25 @@ function resetChatForBusiness(business) {
   ]);
 }
 
+function mergeChatContext(context) {
+  if (!context) {
+    return;
+  }
+
+  const merged = {
+    business_name: context.business_name || currentBusinessContext?.business_name || "La tua attivita",
+    sector: context.sector || currentBusinessContext?.sector || context.target || "",
+    location: context.location || currentBusinessContext?.location || "",
+    target: context.target || currentBusinessContext?.target || context.sector || "",
+    details: context.details || currentBusinessContext?.details || "",
+  };
+
+  if (merged.sector || merged.target || merged.location) {
+    currentBusinessContext = merged;
+    sessionStorage.setItem(businessStorageKey, JSON.stringify(currentBusinessContext));
+  }
+}
+
 function getBusinessContext() {
   const business_name = document.querySelector("#business-name").value.trim();
   const sector = document.querySelector("#sector").value.trim();
@@ -396,6 +415,7 @@ chatForm.addEventListener("submit", async (event) => {
       conversation_id: currentConversationId || null,
     });
     currentConversationId = data.conversation_id;
+    mergeChatContext(data.context);
     renderChatMessage("bot", data.reply);
     renderChatMessage("cta", data.cta, "cta");
     if (data.follow_up_question) {

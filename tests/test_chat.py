@@ -148,3 +148,46 @@ def test_chat_infers_sector_and_location_from_free_text() -> None:
     assert "erboristeria" in body["reply"].lower()
     assert "como" in body["reply"].lower()
     assert body["needs_clarification"] is False
+
+
+def test_chat_infers_trade_and_city_from_free_text() -> None:
+    response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "mi serve un giardiniere a Lomazzo",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["module"] == "leads"
+    assert "giardiniere" in body["reply"].lower()
+    assert "lomazzo" in body["reply"].lower()
+    assert body["needs_clarification"] is False
+    assert body["context"]["target"] == "giardiniere"
+    assert body["context"]["location"] == "Lomazzo"
+
+
+def test_chat_uses_previous_context_when_user_only_repeats_location() -> None:
+    first_response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "mi serve un giardiniere",
+        },
+    )
+    first_body = first_response.json()
+
+    second_response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "te l'ho scritto a Lomazzo",
+            "business": first_body["context"],
+        },
+    )
+
+    assert second_response.status_code == 200
+    body = second_response.json()
+    assert body["module"] == "leads"
+    assert "giardiniere" in body["reply"].lower()
+    assert "lomazzo" in body["reply"].lower()
+    assert body["needs_clarification"] is False

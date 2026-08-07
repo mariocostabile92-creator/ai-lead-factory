@@ -6,7 +6,7 @@ from urllib.parse import quote_plus
 
 from sqlalchemy.orm import Session
 
-from backend.schemas.chat import ChatRequest, ChatResponse
+from backend.schemas.chat import ChatContext, ChatRequest, ChatResponse
 from backend.services.openai_client import call_with_timeout, get_openai_client
 from backend.services.store import (
     get_or_create_conversation,
@@ -86,6 +86,7 @@ LOCATION_PATTERNS = [
 ]
 
 TARGET_PATTERNS = [
+    r"\b(?:un|una|il|la|cerco|cerca|trova|trovare)\s+([a-zA-ZÀ-ÿ' -]{3,60})\s+(?:a|in|su|zona|vicino a|nei pressi di)\b",
     r"\b(?:azienda|aziende|attivita|negozio|negozi|cliente|clienti|lead|prospect)\s+(?:di|da|per|nel settore)\s+([a-zA-ZÀ-ÿ' -]{3,80})",
     r"\b(?:di|da|per)\s+([a-zA-ZÀ-ÿ' -]{3,80})",
 ]
@@ -172,8 +173,12 @@ def detect_outreach_format(message: str) -> str:
 
 def _clean_extracted_value(value: str) -> str:
     cleaned = normalize_text(value)
+    cleaned = re.split(
+        r"\b(mi|ma|pero|però|e|quindi|che|perche|perchè|dove|poi|chiede|richiede|dimmi|dammi)\b",
+        cleaned,
+    )[0]
     cleaned = re.sub(
-        r"\b(ok|ho|bisogno|devo|voglio|vorrei|trovare|cercare|una|un|delle|degli|dei|le|gli|i|il|la)\b",
+        r"\b(ok|te|l|lo|gli|ho|scritto|detto|bisogno|devo|voglio|vorrei|trovare|cercare|una|un|delle|degli|dei|le|gli|i|il|la)\b",
         " ",
         cleaned,
     )
@@ -207,10 +212,12 @@ def _infer_context_from_message(message: str, sector: str, location: str, target
 
     if not inferred_target:
         compact = re.sub(
-            r"\b(ok|ho|bisogno|devo|voglio|vorrei|mi|serve|servono|trovare|cercare|trova|cerca|nuovi|clienti|lead|prospect|azienda|aziende|attivita|di|da|per|un|una|il|la|i|le)\b",
+            r"\b(ok|te|l|lo|ho|scritto|detto|bisogno|devo|voglio|vorrei|mi|serve|servono|trovare|cercare|trova|cerca|nuovi|clienti|lead|prospect|azienda|aziende|attivita|di|da|per|a|in|su|zona|un|una|il|la|i|le)\b",
             " ",
             normalized,
         )
+        if inferred_location:
+            compact = re.sub(rf"\b{re.escape(normalize_text(inferred_location))}\b", " ", compact)
         compact = _clean_extracted_value(compact)
         if compact:
             inferred_target = compact
@@ -589,7 +596,6 @@ def _call_openai_chat(
 
 
 def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatResponse:
-    module = detect_module(payload.message)
     business = payload.business
     business_name = business.business_name if business else ""
     sector = business.sector if business else ""
@@ -597,6 +603,9 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
     target = business.target if business else ""
     details = business.details if business else ""
     sector, location, target = _infer_context_from_message(payload.message, sector, location, target)
+    module = detect_module(payload.message)
+    if module == "operations" and (sector or target):
+        module = "leads"
 
     conversation = None
     if db is not None:
@@ -648,6 +657,13 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
         search_links=list(model_output.get("search_links", [])),
         draft_title=model_output.get("draft_title", ""),
         draft=model_output.get("draft", ""),
+        context=ChatContext(
+            business_name=business_name,
+            sector=sector,
+            location=location,
+            target=target,
+            details=details,
+        ),
     )
 
     if db is not None and conversation is not None:

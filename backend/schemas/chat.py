@@ -1,11 +1,17 @@
 from pydantic import BaseModel, Field
 
-from backend.schemas.common import BusinessContext
+
+class ChatContext(BaseModel):
+    business_name: str = ""
+    sector: str = ""
+    location: str = ""
+    target: str = ""
+    details: str = ""
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
-    business: BusinessContext | None = None
+    business: ChatContext | None = None
     conversation_id: str | None = None
 
 
@@ -21,3 +27,4 @@ class ChatResponse(BaseModel):
     search_links: list[str] = Field(default_factory=list)
     draft_title: str = ""
     draft: str = ""
+    context: ChatContext = Field(default_factory=ChatContext)
