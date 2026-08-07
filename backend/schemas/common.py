@@ -16,3 +16,4 @@ class AssistantResponse(BaseModel):
     summary: str
     actions: list[str]
     output: str
+    lead_id: int | None = None

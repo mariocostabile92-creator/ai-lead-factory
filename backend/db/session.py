@@ -18,6 +18,17 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 def init_db() -> None:
     from backend.models.activity import Activity
+    from backend.models.conversation import Conversation, ConversationMessage
+    from backend.models.lead import Lead
+
     Base.metadata.create_all(bind=engine)

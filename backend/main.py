@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 app.include_router(api_router, prefix="/api")
 app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+init_db()
 
 @app.get("/", include_in_schema=False)
 def frontend_home() -> FileResponse:

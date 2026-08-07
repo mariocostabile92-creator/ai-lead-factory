@@ -5,7 +5,7 @@ from backend.main import app
 client = TestClient(app)
 
 
-def test_chat_routes_to_leads() -> None:
+def test_chat_creates_history() -> None:
     response = client.post(
         "/api/chat/respond",
         json={
@@ -18,24 +18,15 @@ def test_chat_routes_to_leads() -> None:
             },
         },
     )
+
     assert response.status_code == 200
     body = response.json()
-    assert body["module"] == "leads"
+    assert body["conversation_id"]
+    assert body["cta"]
     assert body["suggestions"]
 
-
-def test_chat_routes_to_operations() -> None:
-    response = client.post(
-        "/api/chat/respond",
-        json={
-            "message": "Organizza le mie priorità di oggi",
-            "business": {
-                "business_name": "Demo SRL",
-                "sector": "servizi",
-                "location": "Milano",
-                "details": "",
-            },
-        },
-    )
-    assert response.status_code == 200
-    assert response.json()["module"] == "operations"
+    history = client.get(f"/api/chat/history/{body['conversation_id']}")
+    assert history.status_code == 200
+    history_body = history.json()
+    assert history_body["conversation_id"] == body["conversation_id"]
+    assert len(history_body["messages"]) >= 2

@@ -225,6 +225,12 @@ button:hover {
   gap: 18px;
 }
 
+.recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
 .stat h3,
 .price-card h3 {
   margin: 14px 0 10px;
@@ -324,6 +330,26 @@ button:hover {
   width: 100%;
 }
 
+.recent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recent-card h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.12;
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
+}
+
+.recent-card p {
+  margin: 0;
+  color: #4b5c52;
+  line-height: 1.65;
+}
+
 .chatbot-section {
   padding-top: 26px;
 }
@@ -387,6 +413,14 @@ button:hover {
   align-self: flex-end;
   background: linear-gradient(135deg, #ffb45c 0%, #ff7f5b 100%);
   color: #132018;
+}
+
+.chat-bubble.cta {
+  align-self: flex-start;
+  background: rgba(61, 142, 255, 0.12);
+  border: 1px solid rgba(61, 142, 255, 0.18);
+  color: #215fa8;
+  font-weight: 800;
 }
 
 .chat-suggestions {
@@ -525,6 +559,7 @@ pre {
   .workspace,
   .chat-layout,
   .cards,
+  .recent-grid,
   .pricing-grid,
   .grid,
   .mini-grid {
