@@ -21,6 +21,20 @@ const businessStorageKey = "aiLeadFactoryBusinessContext";
 let currentConversationId = localStorage.getItem(conversationStorageKey) || "";
 let currentBusinessContext = JSON.parse(localStorage.getItem(businessStorageKey) || "null");
 
+function resetChatForBusiness(business) {
+  currentConversationId = "";
+  currentBusinessContext = business;
+  localStorage.removeItem(conversationStorageKey);
+  localStorage.setItem(businessStorageKey, JSON.stringify(currentBusinessContext));
+  chatMessages.innerHTML = "";
+  renderChatMessage("bot", `Ok, riparto da questo contesto: ${business.business_name}, ${business.sector}, zona ${business.location}, target ${business.target}. Dimmi se vuoi cercare prospect, scrivere messaggi o qualificare una lista.`);
+  updateSuggestions([
+    "Cerca aziende target reali",
+    "Scrivi email per questi target",
+    "Crea messaggio LinkedIn",
+  ]);
+}
+
 function getBusinessContext() {
   const business_name = document.querySelector("#business-name").value.trim();
   const sector = document.querySelector("#sector").value.trim();
@@ -291,8 +305,7 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const data = await runAssistant(payload);
-    currentBusinessContext = payload.business;
-    localStorage.setItem(businessStorageKey, JSON.stringify(currentBusinessContext));
+    resetChatForBusiness(payload.business);
     resultModule.textContent = data.module;
     resultTitle.textContent = data.title;
     resultSummary.textContent = data.summary;
@@ -311,7 +324,7 @@ form.addEventListener("submit", async (event) => {
     alert(error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Avvia il lavoro";
+    button.textContent = "Cerca prospect e crea messaggi";
   }
 });
 
