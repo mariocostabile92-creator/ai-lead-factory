@@ -71,3 +71,48 @@ def test_chat_returns_linkedin_draft_when_requested() -> None:
     body = response.json()
     assert body["draft_title"] == "Messaggio LinkedIn pronto"
     assert "linkedin" in body["draft"].lower()
+
+
+def test_chat_understands_real_target_search_request() -> None:
+    response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "Cerca aziende target reali",
+            "business": {
+                "business_name": "Costabile SRL",
+                "sector": "impianti elettrici",
+                "location": "Como",
+                "target": "amministratori di condominio e studi tecnici",
+                "details": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["module"] == "leads"
+    assert "amministratori di condominio" in body["reply"].lower()
+    assert body["search_links"]
+    assert "ordine nel lavoro" not in body["reply"].lower()
+
+
+def test_chat_returns_follow_up_draft_when_requested() -> None:
+    response = client.post(
+        "/api/chat/respond",
+        json={
+            "message": "Crea un follow-up",
+            "business": {
+                "business_name": "Demo SRL",
+                "sector": "servizi",
+                "location": "Milano",
+                "target": "studi professionali",
+                "details": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["module"] == "outreach"
+    assert body["draft_title"] == "Follow-up pronto"
+    assert "studi professionali" in body["draft"].lower()

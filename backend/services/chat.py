@@ -1,5 +1,6 @@
 import json
 import re
+import unicodedata
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -15,17 +16,69 @@ from backend.services.store import (
 
 
 MODULE_KEYWORDS = {
-    "leads": ["cliente", "clienti", "lead", "contatti", "vendere", "azienda", "prospect", "ricerca"],
-    "outreach": ["email", "messaggio", "linkedin", "whatsapp", "follow-up", "follow up"],
+    "leads": [
+        "cliente",
+        "clienti",
+        "lead",
+        "contatti",
+        "vendere",
+        "azienda",
+        "aziende",
+        "prospect",
+        "ricerca",
+        "cerca",
+        "trova",
+        "target",
+        "lista",
+        "nominativi",
+        "potenziali",
+    ],
+    "outreach": [
+        "email",
+        "mail",
+        "messaggio",
+        "linkedin",
+        "whatsapp",
+        "follow-up",
+        "follow up",
+        "scrivi",
+        "bozza",
+        "oggetto",
+    ],
     "hiring": ["assumere", "assunzione", "candidato", "cv", "colloquio", "dipendente"],
     "documents": ["preventivo", "contratto", "documento", "offerta", "proposta"],
-    "operations": ["organizzare", "task", "scadenza", "processo", "operativo", "priorita"],
+    "operations": ["organizzare", "task", "scadenza", "processo", "operativo", "priorita", "checklist", "piano"],
 }
 
 OUTREACH_FORMAT_KEYWORDS = {
     "email": ["email", "mail", "messaggio email", "oggetto"],
     "linkedin": ["linkedin", "linked in", "messaggio linkedin", "dm"],
     "follow_up": ["follow-up", "follow up", "rinvito", "sollecito", "secondo messaggio"],
+}
+
+MODULE_PRIORITY = {
+    "leads": [
+        "cerca aziende",
+        "trova clienti",
+        "trova aziende",
+        "aziende target",
+        "target reali",
+        "nuovi clienti",
+        "lista contatti",
+        "lista lead",
+    ],
+    "outreach": [
+        "scrivi email",
+        "scrivimi email",
+        "messaggio linkedin",
+        "messaggio whatsapp",
+        "email di apertura",
+        "follow up",
+        "follow-up",
+    ],
+    "documents": ["crea preventivo", "scrivi proposta", "contratto base"],
+    "hiring": ["annuncio lavoro", "domande colloquio", "assumere"],
+    "operations": ["organizza", "checklist", "piano di oggi", "priorita"],
 }
 
 CHAT_SCHEMA = {
@@ -79,8 +132,17 @@ CHAT_SCHEMA = {
 }
 
 
+def normalize_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    return "".join(character for character in normalized if not unicodedata.combining(character))
+
+
 def detect_module(message: str) -> str:
-    normalized = message.lower()
+    normalized = normalize_text(message)
+    for module, phrases in MODULE_PRIORITY.items():
+        if any(phrase in normalized for phrase in phrases):
+            return module
+
     scores = {
         module: sum(keyword in normalized for keyword in keywords)
         for module, keywords in MODULE_KEYWORDS.items()
@@ -90,7 +152,7 @@ def detect_module(message: str) -> str:
 
 
 def detect_outreach_format(message: str) -> str:
-    normalized = message.lower()
+    normalized = normalize_text(message)
     scores = {
         intent: sum(keyword in normalized for keyword in keywords)
         for intent, keywords in OUTREACH_FORMAT_KEYWORDS.items()
@@ -111,8 +173,11 @@ def _build_outreach_copy(
     business_name: str,
     sector: str,
     location: str,
+    target: str,
     intent: str,
 ) -> dict[str, str | list[str]]:
+    target_focus = target or f"aziende nel settore {sector}"
+
     if intent == "linkedin":
         return {
             "draft_title": "Messaggio LinkedIn pronto",
@@ -163,42 +228,121 @@ def _build_outreach_copy(
     }
 
 
-def _fallback_reply(module: str, message: str, business_name: str, sector: str, location: str) -> dict[str, Any]:
-    lower_message = message.lower()
+def _build_contextual_outreach_copy(
+    business_name: str,
+    sector: str,
+    location: str,
+    target: str,
+    intent: str,
+) -> dict[str, str | list[str]]:
+    target_focus = target or f"aziende nel settore {sector}"
+    if intent == "linkedin":
+        return {
+            "draft_title": "Messaggio LinkedIn pronto",
+            "draft": chr(10).join([
+                f"Ciao, ti scrivo su LinkedIn perche ho visto che lavorate su un tema vicino a {target_focus}.",
+                f"Noi di {business_name} aiutiamo realta nel settore {sector} a trasformare contatti interessati in richieste concrete.",
+                "Ti va se ti mando una proposta molto breve per capire se puo avere senso parlarne?",
+            ]),
+            "cta": "Vuoi che lo adatti in tono piu diretto o piu commerciale?",
+            "suggestions": [
+                "Crea una variante piu breve",
+                "Scrivi email di apertura",
+                "Prepara il follow-up",
+            ],
+        }
+
+    if intent == "follow_up":
+        return {
+            "draft_title": "Follow-up pronto",
+            "draft": chr(10).join([
+                "Ciao, ti riscrivo solo per capire se hai avuto modo di vedere il messaggio precedente.",
+                f"Te lo chiedo perche stiamo lavorando con {target_focus} a {location} e credo che ci sia un possibile aggancio concreto.",
+                "Se non e il momento giusto nessun problema; in alternativa ti mando due righe molto pratiche e valuti con calma.",
+            ]),
+            "cta": "Vuoi che ti preparo anche secondo e terzo follow-up?",
+            "suggestions": [
+                "Crea secondo follow-up",
+                "Crea terzo follow-up",
+                "Riscrivi piu diretto",
+            ],
+        }
+
+    return {
+        "draft_title": "Bozza email pronta",
+        "draft": chr(10).join([
+            f"Oggetto: proposta veloce per {location}",
+            "",
+            "Ciao,",
+            f"ti scrivo perche sto cercando realta come la tua tra {target_focus}.",
+            f"{business_name} lavora nel settore {sector} e puo aiutarti a ottenere piu richieste dai contatti giusti.",
+            "Se ha senso, ti mando una proposta molto breve e concreta.",
+            "",
+            "Ti va se te la mando?",
+        ]),
+        "cta": "Vuoi che trasformo questa email anche in messaggio LinkedIn e follow-up?",
+        "suggestions": [
+            "Crea messaggio LinkedIn",
+            "Crea 3 follow-up",
+            "Rendila piu commerciale",
+        ],
+    }
+
+
+def _search_queries(sector: str, location: str, target: str) -> list[str]:
+    target_focus = target or sector
+    return [
+        f"{target_focus} {location}",
+        f"aziende {sector} {location}",
+        f"contatti decision maker {target_focus} {location}",
+        f"site:linkedin.com/company {target_focus} {location}",
+        f"Google Maps {target_focus} {location}",
+    ]
+
+
+def _fallback_reply(
+    module: str,
+    message: str,
+    business_name: str,
+    sector: str,
+    location: str,
+    target: str,
+    details: str,
+) -> dict[str, Any]:
+    lower_message = normalize_text(message)
     draft_title = ""
     draft = ""
 
     if module == "leads":
-        search_queries = [
-            f"{sector} aziende {location}",
-            f"{sector} contatti {location}",
-            f"clienti potenziali {sector} {location}",
-        ]
+        target_focus = target or f"aziende nel settore {sector}"
+        search_queries = _search_queries(sector, location, target)
         search_links = [f"https://www.google.com/search?q={quote_plus(query)}" for query in search_queries]
         reply = (
-            f"Ti aiuto a cercare clienti per {business_name}. "
-            f"Partiamo da target reali in {location}, poi costruiamo un primo messaggio e una lista di contatti."
+            f"Ok, cerchiamo clienti reali per {business_name}. "
+            f"Target: {target_focus}. Zona: {location}. "
+            "Ti preparo una ricerca utilizzabile: fonti da aprire, criteri di selezione e prossimo messaggio."
         )
-        cta = "Vuoi che cerchi subito una lista di target reali per la tua zona?"
+        cta = "Apri i link, salva 10 aziende buone e poi ti preparo messaggi personalizzati."
         suggestions = [
-            "Cerca aziende target reali",
-            "Scrivi il messaggio iniziale",
-            "Prepara il follow-up",
+            "Qualifica questi prospect",
+            "Scrivi email per questi target",
+            "Crea follow-up per questi target",
         ]
         research = [
-            f"Cerca aziende e decision maker nel settore {sector} a {location}",
-            "Definisci 3 criteri per qualificare i prospect migliori",
+            f"Cerca aziende che corrispondono a: {target_focus}",
+            f"Priorita geografica: {location}",
+            "Fonti utili: Google Maps, LinkedIn, registri imprese, associazioni locali",
+            "Criteri: settore coerente, dimensione azienda, referente raggiungibile, segnale di bisogno",
         ]
     elif module == "outreach":
         search_queries = []
         search_links = []
         intent = detect_outreach_format(message)
-        copy = _build_outreach_copy(business_name, sector, location, intent)
+        copy = _build_contextual_outreach_copy(business_name, sector, location, target, intent)
         draft_title = str(copy["draft_title"])
         draft = str(copy["draft"])
         reply = (
-            f"Per {business_name} preparo una bozza mirata su {intent.replace('_', ' ')}. "
-            "Ti lascio subito qualcosa di pronto da usare."
+            f"Chiaro. Per {business_name} preparo una bozza {intent.replace('_', ' ')} agganciata al target reale, non generica."
         )
         cta = str(copy["cta"])
         suggestions = list(copy["suggestions"])
@@ -244,10 +388,8 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
         ]
         research = []
 
-    if any(term in lower_message for term in ["tutto", "completo", "ricerca", "cerca", "trova"]):
+    if module != "leads" and any(term in lower_message for term in ["tutto", "completo", "ricerca", "cerca", "trova"]):
         cta = "Vuoi che faccia una ricerca reale e ti preparo i target?"
-        if module == "leads":
-            suggestions[0] = "Cerca aziende target reali"
 
     needs_clarification = not (business_name and sector and location)
     follow_up_question = (
@@ -270,8 +412,17 @@ def _fallback_reply(module: str, message: str, business_name: str, sector: str, 
     }
 
 
-def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: str, sector: str, location: str, message: str) -> dict[str, Any]:
-    fallback = _fallback_reply(module, "", business_name, sector, location)
+def _ensure_search_focus(
+    payload: dict[str, Any],
+    module: str,
+    business_name: str,
+    sector: str,
+    location: str,
+    target: str,
+    details: str,
+    message: str,
+) -> dict[str, Any]:
+    fallback = _fallback_reply(module, "", business_name, sector, location, target, details)
     intent = detect_outreach_format(message) if module == "outreach" else ""
     payload.setdefault("module", module)
     payload.setdefault("reply", fallback["reply"])
@@ -291,7 +442,7 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
     if not payload.get("search_links") and module == "leads":
         payload["search_links"] = list(fallback.get("search_links", []))
     if module == "outreach":
-        copy = _build_outreach_copy(business_name, sector, location, intent)
+        copy = _build_contextual_outreach_copy(business_name, sector, location, target, intent)
         payload["draft_title"] = str(copy["draft_title"])
         payload["draft"] = str(copy["draft"])
         payload["cta"] = str(copy["cta"])
@@ -301,8 +452,8 @@ def _ensure_search_focus(payload: dict[str, Any], module: str, business_name: st
         if not any("cerca" in suggestion.lower() for suggestion in suggestions):
             suggestions.insert(0, "Cerca aziende target reali")
         payload["suggestions"] = suggestions[:3]
-        if "ricerca" not in payload.get("cta", "").lower():
-            payload["cta"] = "Vuoi che faccia una ricerca reale e ti preparo i target?"
+        if "ricerca" not in payload.get("cta", "").lower() and "link" not in payload.get("cta", "").lower():
+            payload["cta"] = fallback["cta"]
     return payload
 
 def _call_openai_chat(
@@ -310,6 +461,8 @@ def _call_openai_chat(
     business_name: str,
     sector: str,
     location: str,
+    target: str,
+    details: str,
     message: str,
     conversation_response_id: str | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -320,12 +473,17 @@ def _call_openai_chat(
     tools = [{"type": "web_search"}] if module in {"leads", "outreach"} else []
     instructions = (
         "You are AI Lead Factory, a sharp, practical business assistant.\n"
+        "Classify the user's real intent before answering: lead research, outreach copy, documents, hiring, or operations.\n"
         "Never repeat the same question if the needed context is already present in memory.\n"
         "Advance the conversation by proposing the next best concrete action.\n"
-        "If the user asks for clients or sales help, include a research step and real-world search suggestions.\n"
+        "If the user asks to find clients, companies, prospects, targets, contacts, or says 'cerca aziende target reali', answer as lead research.\n"
+        "For lead research, include concrete search sources, qualification criteria, and useful search links.\n"
+        "If the user asks to write an email, LinkedIn message, WhatsApp, or follow-up, return usable copy in draft_title and draft.\n"
         "If business context is incomplete, ask exactly one short clarifying question and stop there.\n"
-        "Keep the tone direct, useful, and conversion oriented.\n"
+        "Keep the tone direct, useful, and conversion oriented. Avoid generic productivity advice unless the user asks for operations.\n"
         f"Current context: business={business_name or 'unknown'}, sector={sector or 'unknown'}, location={location or 'unknown'}.\n"
+        f"Target to research/sell to: {target or 'unknown'}.\n"
+        f"Extra business details: {details or 'none'}.\n"
         f"Primary module: {module}."
     )
 
@@ -367,6 +525,8 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
     business_name = business.business_name if business else ""
     sector = business.sector if business else ""
     location = business.location if business else ""
+    target = business.target if business else ""
+    details = business.details if business else ""
 
     conversation = None
     if db is not None:
@@ -386,14 +546,25 @@ def chat_assistant(payload: ChatRequest, db: Session | None = None) -> ChatRespo
         business_name=business_name,
         sector=sector,
         location=location,
+        target=target,
+        details=details,
         message=payload.message.strip(),
         conversation_response_id=(conversation.openai_response_id if conversation else None),
     )
 
     if model_output is None:
-        model_output = _fallback_reply(module, payload.message.strip(), business_name, sector, location)
+        model_output = _fallback_reply(module, payload.message.strip(), business_name, sector, location, target, details)
     else:
-        model_output = _ensure_search_focus(model_output, module, business_name, sector, location, payload.message.strip())
+        model_output = _ensure_search_focus(
+            model_output,
+            module,
+            business_name,
+            sector,
+            location,
+            target,
+            details,
+            payload.message.strip(),
+        )
 
     response = ChatResponse(
         conversation_id=conversation.id if conversation else payload.conversation_id or "",
