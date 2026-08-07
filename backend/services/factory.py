@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 import httpx
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.schemas.common import AssistantRequest, AssistantResponse
 from backend.services.base import BaseAssistantService
 from backend.services.openai_client import call_with_timeout, get_openai_client
@@ -404,7 +405,7 @@ class LeadFactoryService(BaseAssistantService):
             search_links=list(model_output.get("search_links", [])),
         )
 
-        if db is not None:
+        if db is not None and settings.enable_public_storage:
             lead = save_lead(db, payload, result)
             result.lead_id = lead.id
 

@@ -5,7 +5,7 @@ from backend.main import app
 client = TestClient(app)
 
 
-def test_chat_creates_history() -> None:
+def test_chat_does_not_persist_history_without_login() -> None:
     response = client.post(
         "/api/chat/respond",
         json={
@@ -21,15 +21,14 @@ def test_chat_creates_history() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["conversation_id"]
     assert body["cta"]
     assert body["suggestions"]
 
-    history = client.get(f"/api/chat/history/{body['conversation_id']}")
+    history = client.get("/api/chat/history/sessione-demo")
     assert history.status_code == 200
     history_body = history.json()
-    assert history_body["conversation_id"] == body["conversation_id"]
-    assert len(history_body["messages"]) >= 2
+    assert history_body["conversation_id"] == "sessione-demo"
+    assert history_body["messages"] == []
 
 
 def test_chat_returns_specific_outreach_draft() -> None:

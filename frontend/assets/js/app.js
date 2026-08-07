@@ -1,4 +1,4 @@
-import { loadChatHistory, loadRecentLeads, runAssistant, sendChat } from "./api.js";
+import { runAssistant, sendChat } from "./api.js";
 
 const form = document.querySelector("#assistant-form");
 const result = document.querySelector("#result");
@@ -18,14 +18,15 @@ const chatSuggestions = document.querySelector("#chat-suggestions");
 const recentLeads = document.querySelector("#recent-leads");
 const conversationStorageKey = "aiLeadFactoryConversationId";
 const businessStorageKey = "aiLeadFactoryBusinessContext";
-let currentConversationId = localStorage.getItem(conversationStorageKey) || "";
-let currentBusinessContext = JSON.parse(localStorage.getItem(businessStorageKey) || "null");
+localStorage.removeItem(conversationStorageKey);
+localStorage.removeItem(businessStorageKey);
+let currentConversationId = "";
+let currentBusinessContext = JSON.parse(sessionStorage.getItem(businessStorageKey) || "null");
 
 function resetChatForBusiness(business) {
   currentConversationId = "";
   currentBusinessContext = business;
-  localStorage.removeItem(conversationStorageKey);
-  localStorage.setItem(businessStorageKey, JSON.stringify(currentBusinessContext));
+  sessionStorage.setItem(businessStorageKey, JSON.stringify(currentBusinessContext));
   chatMessages.innerHTML = "";
   renderChatMessage("bot", `Ok, riparto da questo contesto: ${business.business_name}, ${business.sector}, zona ${business.location}, target ${business.target}. Dimmi se vuoi cercare prospect, scrivere messaggi o qualificare una lista.`);
   updateSuggestions([
@@ -202,79 +203,21 @@ function renderDraft(title, draft) {
 }
 
 function renderRecentLeads(items) {
-  if (!items.length) {
-    recentLeads.innerHTML = `
-      <article class="panel recent-card">
-        <span class="card-label">In attesa</span>
-        <h3>Nessun lead ancora salvato</h3>
-        <p>Genera il primo pacchetto e vedrai comparire qui i dettagli dell'attivita salvata.</p>
-      </article>
-    `;
-    return;
-  }
-
-  recentLeads.innerHTML = "";
-  items.forEach((item) => {
-    const card = document.createElement("article");
-    card.className = "panel recent-card";
-
-    const badge = document.createElement("span");
-    badge.className = "card-label";
-    badge.textContent = item.module;
-
-    const title = document.createElement("h3");
-    title.textContent = item.business_name;
-
-    const details = document.createElement("p");
-    details.textContent = `${item.sector} - ${item.location}`;
-
-    const summary = document.createElement("p");
-    summary.textContent = item.title;
-
-    card.appendChild(badge);
-    card.appendChild(title);
-    card.appendChild(details);
-    card.appendChild(summary);
-    recentLeads.appendChild(card);
-  });
+  recentLeads.innerHTML = `
+    <article class="panel recent-card">
+      <span class="card-label">Privacy</span>
+      <h3>Nessun dato pubblico salvato</h3>
+      <p>Ogni visitatore lavora nella propria sessione. Senza login non mostriamo lead o chat di altre persone.</p>
+    </article>
+  `;
 }
 
 async function refreshRecentLeads() {
-  try {
-    const items = await loadRecentLeads();
-    renderRecentLeads(items);
-  } catch (error) {
-    renderRecentLeads([]);
-  }
+  renderRecentLeads([]);
 }
 
 async function restoreChatHistory() {
-  if (!currentConversationId) {
-    return;
-  }
-
-  try {
-    const history = await loadChatHistory(currentConversationId);
-    chatMessages.innerHTML = "";
-    history.messages.forEach((message) => {
-      if (message.role === "assistant" && message.content.includes("CTA: ")) {
-        const [replyText, rest] = message.content.split("\n\nCTA: ");
-        const [ctaText, draftText] = rest.split("\n\nDRAFT: ");
-        renderChatMessage("bot", replyText.trim());
-        if (ctaText) {
-          renderChatMessage("cta", ctaText.trim(), "cta");
-        }
-        if (draftText) {
-          renderDraft("Bozza salvata", draftText.trim());
-        }
-        return;
-      }
-
-      renderChatMessage(message.role === "assistant" ? "bot" : "user", message.content);
-    });
-  } catch (error) {
-    chatMessages.innerHTML = "";
-  }
+  currentConversationId = "";
 }
 
 function attachPromptButtons() {
@@ -351,7 +294,6 @@ chatForm.addEventListener("submit", async (event) => {
       conversation_id: currentConversationId || null,
     });
     currentConversationId = data.conversation_id;
-    localStorage.setItem(conversationStorageKey, currentConversationId);
     renderChatMessage("bot", data.reply);
     renderChatMessage("cta", data.cta, "cta");
     if (data.follow_up_question) {

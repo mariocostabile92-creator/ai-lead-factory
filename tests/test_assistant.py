@@ -32,15 +32,15 @@ def test_routes_goal_to_lead_factory(monkeypatch) -> None:
     body = response.json()
     assert body["module"] == "lead_factory"
     assert body["title"] == "Ricerca commerciale pronta"
-    assert body["lead_id"] is not None
+    assert body["lead_id"] is None
     assert "Prospect trovati da verificare" in body["output"]
     assert "Studio Tecnico Demo Como" in body["output"]
     assert body["search_links"] == ["https://example.com/studio-tecnico-demo"]
 
 
-def test_recent_leads_contains_saved_item(monkeypatch) -> None:
+def test_recent_leads_are_not_public_without_login(monkeypatch) -> None:
     monkeypatch.setattr("backend.services.factory._search_web", fake_search_results)
-    response = client.post(
+    client.post(
         "/api/assistant/run",
         json={
             "goal": "Voglio trovare nuovi clienti e preparare messaggi commerciali",
@@ -53,8 +53,7 @@ def test_recent_leads_contains_saved_item(monkeypatch) -> None:
             },
         },
     )
-    lead_id = response.json()["lead_id"]
 
     recent = client.get("/api/leads/recent")
     assert recent.status_code == 200
-    assert any(item["id"] == lead_id for item in recent.json())
+    assert recent.json() == []
