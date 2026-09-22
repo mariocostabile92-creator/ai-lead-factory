@@ -55,6 +55,13 @@ def test_routes_goal_to_lead_factory(monkeypatch) -> None:
     assert body["prospects"][0]["name"] == "Studio Tecnico Demo Como"
     assert body["prospects"][0]["fit_reason"]
     assert "Demo SRL" in body["prospects"][0]["message"]
+    assert body["prospects"][0]["target_score"] > 0
+    assert body["prospects"][0]["email_subject"]
+    assert body["prospects"][0]["email_body"]
+    assert body["prospects"][0]["whatsapp_message"]
+    assert body["prospects"][0]["linkedin_message"]
+    assert body["prospects"][0]["follow_up_message"]
+    assert body["prospects"][0]["status"] == "Da contattare"
 
 
 def test_recent_leads_are_not_public_without_login(monkeypatch) -> None:
@@ -104,4 +111,6 @@ def test_routes_goal_uses_google_places_prospects(monkeypatch) -> None:
     assert body["search_links"] == ["https://maps.google.com/?cid=123"]
     assert body["prospects"][0]["phone"] == "031 123456"
     assert body["prospects"][0]["rating"] == "4.7 (18 recensioni)"
+    assert body["prospects"][0]["target_score"] >= 8
+    assert body["prospects"][0]["score_reason"]
     assert "Studio Tecnico Places Como" in body["prospects"][0]["message"]

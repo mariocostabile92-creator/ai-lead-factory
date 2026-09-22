@@ -1,4 +1,6 @@
 import { runAssistant, sendChat } from "./api.js";
+import { downloadProspectsCsv } from "./csv.js";
+import { getProspectStatus, prospectStatuses, setProspectStatus } from "./prospectStatus.js";
 
 const form = document.querySelector("#assistant-form");
 const result = document.querySelector("#result");
@@ -186,54 +188,141 @@ async function copyText(text, button) {
   }
 }
 
-function escapeCsvValue(value) {
-  const normalizedValue = String(value || "").replace(/\r?\n|\r/g, " ").trim();
-  return `"${normalizedValue.replace(/"/g, '""')}"`;
+function valueOrUnavailable(value) {
+  return value || "Non disponibile";
 }
 
-function buildProspectsCsv(prospects) {
-  const headers = [
-    "Nome azienda",
-    "Telefono",
-    "Sito",
-    "Google Maps",
-    "Indirizzo",
-    "Rating",
-    "Fonte",
-    "Perche e un buon target",
-    "Messaggio personalizzato",
-  ];
-
-  const rows = prospects.slice(0, 50).map((prospect) => [
-    prospect.name,
-    prospect.phone,
-    prospect.website,
-    prospect.maps_url,
-    prospect.address,
-    prospect.rating,
-    prospect.source,
-    prospect.fit_reason,
-    prospect.message,
-  ]);
-
-  return [
-    headers.map(escapeCsvValue).join(","),
-    ...rows.map((row) => row.map(escapeCsvValue).join(",")),
-  ].join("\n");
+function prospectsWithCurrentStatuses(prospects) {
+  return prospects.map((prospect) => ({
+    ...prospect,
+    status: getProspectStatus(prospect),
+  }));
 }
 
-function downloadProspectsCsv(prospects) {
-  const csv = buildProspectsCsv(prospects);
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  const date = new Date().toISOString().slice(0, 10);
-  anchor.href = url;
-  anchor.download = `ai-lead-factory-prospect-${date}.csv`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+function countProspectScores(prospects) {
+  return prospects.reduce(
+    (counts, prospect) => {
+      const score = Number(prospect.target_score || 0);
+      if (score >= 8) {
+        counts.strong += 1;
+      } else if (score >= 6) {
+        counts.medium += 1;
+      } else {
+        counts.review += 1;
+      }
+      return counts;
+    },
+    { strong: 0, medium: 0, review: 0 },
+  );
+}
+
+function appendInfo(container, label, value, link = "") {
+  const item = document.createElement("div");
+  item.className = "sales-pack-info";
+
+  const labelElement = document.createElement("span");
+  labelElement.textContent = label;
+  item.appendChild(labelElement);
+
+  if (link) {
+    const anchor = document.createElement("a");
+    anchor.href = link;
+    anchor.target = "_blank";
+    anchor.rel = "noreferrer";
+    anchor.textContent = valueOrUnavailable(value);
+    item.appendChild(anchor);
+  } else {
+    const strong = document.createElement("strong");
+    strong.textContent = valueOrUnavailable(value);
+    item.appendChild(strong);
+  }
+
+  container.appendChild(item);
+}
+
+function createCopyButton(text, label = "Copia") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "copy-button";
+  button.textContent = label;
+  button.addEventListener("click", () => copyText(text || "", button));
+  return button;
+}
+
+function renderMessageBlock(title, text, extraAction = null) {
+  const block = document.createElement("article");
+  block.className = "message-pack";
+
+  const header = document.createElement("div");
+  header.className = "message-pack-header";
+  const heading = document.createElement("h5");
+  heading.textContent = title;
+  header.appendChild(heading);
+  header.appendChild(createCopyButton(text));
+  if (extraAction) {
+    header.appendChild(extraAction);
+  }
+  block.appendChild(header);
+
+  const body = document.createElement("p");
+  body.textContent = text || "Non disponibile";
+  block.appendChild(body);
+  return block;
+}
+
+function renderSalesPack(details, prospect) {
+  const pack = document.createElement("div");
+  pack.className = "sales-pack";
+
+  const prospectSection = document.createElement("section");
+  prospectSection.className = "sales-pack-section";
+  prospectSection.innerHTML = "<h4>Prospect</h4>";
+  appendInfo(prospectSection, "Nome", prospect.name);
+  appendInfo(prospectSection, "Categoria", prospect.category);
+  appendInfo(prospectSection, "Fonte", prospect.source);
+  appendInfo(prospectSection, "Rating", prospect.rating);
+  pack.appendChild(prospectSection);
+
+  const targetSection = document.createElement("section");
+  targetSection.className = "sales-pack-section";
+  targetSection.innerHTML = "<h4>Perché è un buon target</h4>";
+  const score = document.createElement("strong");
+  score.className = "score-line";
+  score.textContent = `Buon target: ${prospect.target_score || "?"}/10`;
+  targetSection.appendChild(score);
+  const reason = document.createElement("p");
+  reason.textContent = prospect.score_reason || prospect.fit_reason || "Da qualificare manualmente.";
+  targetSection.appendChild(reason);
+  const contactReason = document.createElement("p");
+  contactReason.textContent = prospect.contact_reason || "Da contattare dopo verifica manuale.";
+  targetSection.appendChild(contactReason);
+  pack.appendChild(targetSection);
+
+  const contactSection = document.createElement("section");
+  contactSection.className = "sales-pack-section";
+  contactSection.innerHTML = "<h4>Contatti</h4>";
+  appendInfo(contactSection, "Telefono", prospect.phone);
+  appendInfo(contactSection, "Sito", prospect.website, prospect.website);
+  appendInfo(contactSection, "Google Maps", prospect.maps_url, prospect.maps_url);
+  appendInfo(contactSection, "Indirizzo", prospect.address);
+  pack.appendChild(contactSection);
+
+  const emailText = `Oggetto: ${prospect.email_subject || ""}\n\n${prospect.email_body || prospect.message || ""}`.trim();
+  const subjectButton = createCopyButton(prospect.email_subject || "", "Copia oggetto");
+  pack.appendChild(renderMessageBlock("Email", emailText, subjectButton));
+  pack.appendChild(renderMessageBlock("WhatsApp", prospect.whatsapp_message));
+  pack.appendChild(renderMessageBlock("LinkedIn", prospect.linkedin_message));
+  pack.appendChild(renderMessageBlock("Follow-up", prospect.follow_up_message));
+
+  const nextAction = document.createElement("section");
+  nextAction.className = "sales-pack-section next-action";
+  nextAction.innerHTML = "<h4>Prossima azione</h4>";
+  const actionText = document.createElement("p");
+  actionText.textContent = "Verifica il prospect, copia il messaggio più adatto e aggiorna lo stato dopo il primo contatto.";
+  nextAction.appendChild(actionText);
+  pack.appendChild(nextAction);
+
+  details.appendChild(pack);
 }
 
 function renderProspects(prospects) {
@@ -247,17 +336,19 @@ function renderProspects(prospects) {
     return;
   }
 
+  const enrichedProspects = prospectsWithCurrentStatuses(prospects);
+  const counts = countProspectScores(enrichedProspects);
   resultProspects.innerHTML = "";
   const header = document.createElement("div");
   header.className = "prospects-header";
 
   const titleBlock = document.createElement("div");
   const title = document.createElement("h3");
-  title.textContent = "Prospect pronti da lavorare";
+  title.textContent = `${enrichedProspects.length} prospect trovati`;
   titleBlock.appendChild(title);
 
   const subtitle = document.createElement("p");
-  subtitle.textContent = `${Math.min(prospects.length, 50)} contatti esportabili con messaggio personalizzato.`;
+  subtitle.textContent = `${Math.min(enrichedProspects.length, 50)} contatti esportabili con Sales Pack completo.`;
   titleBlock.appendChild(subtitle);
   header.appendChild(titleBlock);
 
@@ -265,15 +356,28 @@ function renderProspects(prospects) {
   exportButton.type = "button";
   exportButton.className = "export-button";
   exportButton.textContent = "Scarica CSV";
-  exportButton.addEventListener("click", () => downloadProspectsCsv(prospects));
+  exportButton.addEventListener("click", () => downloadProspectsCsv(prospectsWithCurrentStatuses(prospects)));
   header.appendChild(exportButton);
 
   resultProspects.appendChild(header);
 
+  const summary = document.createElement("div");
+  summary.className = "prospect-summary";
+  [
+    ["Target forti", counts.strong],
+    ["Target medi", counts.medium],
+    ["Da valutare", counts.review],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.innerHTML = `<strong>${value}</strong><span>${label}</span>`;
+    summary.appendChild(item);
+  });
+  resultProspects.appendChild(summary);
+
   const table = document.createElement("div");
   table.className = "prospect-table";
 
-  prospects.slice(0, 10).forEach((prospect) => {
+  enrichedProspects.slice(0, 10).forEach((prospect) => {
     const row = document.createElement("article");
     row.className = "prospect-row";
 
@@ -285,15 +389,18 @@ function renderProspects(prospects) {
     header.appendChild(name);
 
     const source = document.createElement("span");
-    source.textContent = prospect.source || "Fonte";
-    source.className = "prospect-source";
+    source.textContent = `${prospect.target_score || "?"}/10`;
+    source.className = "prospect-source score-badge";
     header.appendChild(source);
     row.appendChild(header);
 
     const meta = document.createElement("div");
     meta.className = "prospect-meta";
     [
+      prospect.score_label,
+      prospect.category,
       prospect.phone,
+      prospect.website ? "Sito disponibile" : "",
       prospect.address,
       prospect.rating,
     ].filter(Boolean).forEach((value) => {
@@ -308,10 +415,23 @@ function renderProspects(prospects) {
     reason.textContent = prospect.fit_reason || "Da qualificare manualmente.";
     row.appendChild(reason);
 
-    const message = document.createElement("p");
-    message.className = "prospect-message";
-    message.textContent = prospect.message || "";
-    row.appendChild(message);
+    const statusLabel = document.createElement("label");
+    statusLabel.className = "status-control";
+    statusLabel.textContent = "Stato";
+    const statusSelect = document.createElement("select");
+    prospectStatuses.forEach((status) => {
+      const option = document.createElement("option");
+      option.value = status;
+      option.textContent = status;
+      option.selected = status === prospect.status;
+      statusSelect.appendChild(option);
+    });
+    statusSelect.addEventListener("change", () => {
+      setProspectStatus(prospect, statusSelect.value);
+      prospect.status = statusSelect.value;
+    });
+    statusLabel.appendChild(statusSelect);
+    row.appendChild(statusLabel);
 
     const actions = document.createElement("div");
     actions.className = "prospect-actions";
@@ -326,13 +446,16 @@ function renderProspects(prospects) {
       actions.appendChild(anchor);
     }
 
-    const copyButton = document.createElement("button");
-    copyButton.type = "button";
-    copyButton.className = "copy-button";
-    copyButton.textContent = "Copia messaggio";
-    copyButton.addEventListener("click", () => copyText(prospect.message || "", copyButton));
-    actions.appendChild(copyButton);
+    actions.appendChild(createCopyButton(prospect.email_body || prospect.message || "", "Copia email"));
     row.appendChild(actions);
+
+    const details = document.createElement("details");
+    details.className = "sales-pack-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Apri Sales Pack";
+    details.appendChild(summary);
+    renderSalesPack(details, prospect);
+    row.appendChild(details);
 
     table.appendChild(row);
   });
@@ -447,6 +570,7 @@ form.addEventListener("submit", async (event) => {
       resultActions.appendChild(item);
     });
     resultOutput.textContent = data.output;
+    resultOutput.classList.add("hidden");
     renderResearch(data.research);
     renderProspects(data.prospects);
     renderLinks(data.search_links);

@@ -15,6 +15,7 @@ class AssistantRequest(BaseModel):
 
 class ProspectItem(BaseModel):
     name: str = ""
+    category: str = ""
     phone: str = ""
     website: str = ""
     maps_url: str = ""
@@ -23,6 +24,16 @@ class ProspectItem(BaseModel):
     source: str = ""
     fit_reason: str = ""
     message: str = ""
+    target_score: int = 0
+    score_label: str = ""
+    score_reason: str = ""
+    contact_reason: str = ""
+    email_subject: str = ""
+    email_body: str = ""
+    whatsapp_message: str = ""
+    linkedin_message: str = ""
+    follow_up_message: str = ""
+    status: str = "Da contattare"
 
 
 class AssistantResponse(BaseModel):

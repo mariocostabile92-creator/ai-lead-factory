@@ -11,6 +11,7 @@ from backend.core.config import settings
 from backend.schemas.common import AssistantRequest, AssistantResponse
 from backend.services.base import BaseAssistantService
 from backend.services.openai_client import call_with_timeout, get_openai_client
+from backend.services.sales_pack import build_sales_pack
 from backend.services.store import save_lead
 
 
@@ -178,6 +179,7 @@ def _package_search_queries(sector: str, location: str, target: str) -> list[str
 
 def _place_to_result(place: dict[str, Any]) -> dict[str, str]:
     display_name = place.get("displayName") or {}
+    category = place.get("primaryTypeDisplayName") or {}
     name = display_name.get("text") or place.get("name") or "Prospect Google Maps"
     maps_url = place.get("googleMapsUri") or ""
     website_url = place.get("websiteUri") or ""
@@ -192,6 +194,7 @@ def _place_to_result(place: dict[str, Any]) -> dict[str, str]:
         "website": website_url,
         "maps_url": maps_url,
         "rating": f"{rating} ({reviews} recensioni)" if rating and reviews else str(rating or ""),
+        "category": category.get("text", "") if isinstance(category, dict) else "",
     }
     return result
 
@@ -221,6 +224,7 @@ def _search_google_places(sector: str, location: str, target: str, limit: int = 
                 "places.rating",
                 "places.userRatingCount",
                 "places.businessStatus",
+                "places.primaryTypeDisplayName",
             ]
         ),
     }
@@ -288,33 +292,6 @@ def _merge_research_results(*groups: list[dict[str, str]], limit: int = 12) -> l
     return merged
 
 
-def _prospect_fit_reason(item: dict[str, str], sector: str, location: str, target: str) -> str:
-    parts = []
-    if item.get("source") == "Google Places":
-        parts.append("presenza verificabile su Google Maps")
-    if item.get("phone"):
-        parts.append("telefono disponibile")
-    if item.get("website"):
-        parts.append("sito disponibile")
-    if item.get("rating"):
-        parts.append(f"rating {item['rating']}")
-    if not parts:
-        parts.append("fonte pubblica da qualificare")
-
-    target_focus = target or sector
-    return f"Coerente con '{target_focus}' in zona {location}: " + ", ".join(parts) + "."
-
-
-def _prospect_message(item: dict[str, str], business_name: str, sector: str, location: str, target: str) -> str:
-    target_focus = target or sector
-    name = item.get("title") or "la vostra attivita"
-    return (
-        f"Ciao {name}, ho visto la vostra attivita a {location}. "
-        f"Sto selezionando realta vicine a {target_focus} per {business_name}, che lavora nel settore {sector}. "
-        "Se ha senso, ti mando due righe concrete per capire se possiamo aiutarti."
-    )
-
-
 def _build_prospects(
     search_results: list[dict[str, str]],
     business_name: str,
@@ -324,19 +301,7 @@ def _build_prospects(
 ) -> list[dict[str, str]]:
     prospects: list[dict[str, str]] = []
     for item in search_results[:10]:
-        prospects.append(
-            {
-                "name": item.get("title", ""),
-                "phone": item.get("phone", ""),
-                "website": item.get("website", ""),
-                "maps_url": item.get("maps_url", ""),
-                "address": item.get("address", ""),
-                "rating": item.get("rating", ""),
-                "source": item.get("source") or urlparse(item.get("url", "")).netloc.replace("www.", ""),
-                "fit_reason": _prospect_fit_reason(item, sector, location, target),
-                "message": _prospect_message(item, business_name, sector, location, target),
-            }
-        )
+        prospects.append(build_sales_pack(item, business_name, sector, location, target))
     return prospects
 
 
